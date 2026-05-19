@@ -16,6 +16,6 @@ Metrics:
 Response to drastic metrics while following uncertainty (maybe add a drastic oracle function which is particularly nasty)
 Global Performance as measured by the Oracle Function
 
-See if results improve or simply
+See whether or not results improve.
 
 

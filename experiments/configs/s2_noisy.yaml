@@ -1,0 +1,81 @@
+# =============================================================================
+# S2 — NOISY
+# =============================================================================
+# Persona: The inconsistent human.
+# Underlying utility is identical to S1 (MSE-dominated), but each preference
+# label is randomly flipped with probability noise_level = 0.20.
+# The flip is applied AFTER the utility comparison inside oracle.query().
+# Purpose: Tests robustness of the PairwiseGP to label noise. Measures how
+#          much performance degrades relative to the S1 baseline.
+# Expected outcome: Higher Simple Regret variance across seeds; slower
+#                   convergence; non-zero preference_alignment_rate degradation.
+# =============================================================================
+
+scenario_id: S2
+persona: NOISY
+description: >
+  Preference labels are randomly flipped 20% of the time. No constraints
+  are emitted. Stress-tests the PairwiseGP noise-robustness.
+
+# ── Oracle hyperparameters ────────────────────────────────────────────────────
+oracle:
+  noise_level: 0.20         # 20% flip probability — matches S2 spec in plan
+  seed: 42
+  late_switch_iter: null
+  verbose: true
+
+# ── Hidden utility weights (same as S1 to isolate noise effect) ───────────────
+utility:
+  w_overshoot: 0.5
+  w_settling:  0.5
+  w_mse:       1.0
+
+# ── Hard thresholds ───────────────────────────────────────────────────────────
+thresholds:
+  max_overshoot: null
+  max_settling:  null
+  max_mse:       null
+
+# ── Experiment execution ──────────────────────────────────────────────────────
+experiment:
+  n_iterations:   10
+  n_seeds:        5
+  seeds:          [42, 7, 13, 99, 2025]
+  warm_start_n:   200
+  n_retries:      10
+
+# ── Plant ─────────────────────────────────────────────────────────────────────
+plant:
+  wn:   1.0
+  zeta: 0.7
+
+# ── Parameter search space ───────────────────────────────────────────────────
+bounds:
+  Kp: [0.1, 5.0]
+  Ki: [0.001, 3.0]
+
+# ── Acquisition function ──────────────────────────────────────────────────────
+acquisition:
+  type: qUCB
+  beta: 3.0
+  beta_schedule: fixed
+
+# ── Constraint enforcement strategy ──────────────────────────────────────────
+constraint_mode: surrogate_mean
+
+# ── Noise analysis extras ─────────────────────────────────────────────────────
+# These flags tell run_experiment.py to log additional data for noise analysis.
+noise_analysis:
+  record_flipped_iterations: true   # Log which iterations had a flip
+  compare_with_scenario: S1         # For relative regret comparison
+
+# ── Metrics to record ────────────────────────────────────────────────────────
+logging:
+  metrics:
+    - simple_regret
+    - cumulative_constraint_violations
+    - convergence_iteration
+    - preference_alignment_rate
+    - feasibility_rate
+    - n_flipped_labels            # Extra: count of actual flips per run
+  output_dir: experiments/results/s2_noisy

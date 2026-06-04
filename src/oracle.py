@@ -44,14 +44,15 @@ from dataclasses import dataclass, field
 # ─────────────────────────────────────────────────────────────────────────────
 
 class OraclePersona(Enum):
-    MONOTONE            = auto()   # S1: always prefers lower MSE, no constraints
-    NOISY               = auto()   # S2: 20% random flip in preference label
-    CONTRADICTORY       = auto()   # S3: prefers B but adds constraint B already violates
-    DRASTIC_ABSOLUTE    = auto()   # S4: hard absolute threshold ("no overshoot" → < 1%)
-    DRASTIC_RELATIVE    = auto()   # S5: "better than A in everything"
-    DIRECTION_ONLY      = auto()   # S6: never reveals preference, only adds direction constraints
-    LATE_SWITCHER       = auto()   # S7: consistent for 3 iters, then reverses all weights
-    AMBIGUOUS_POSITIVE  = auto()   # S8: always says "I prefer B" even when B is worse
+    MONOTONE             = auto()   # S1: always prefers lower MSE, no constraints
+    MONOTONE_CONSTRAINED = auto()   # S1b: MSE-dominant preference + aligned relative constraint
+    NOISY                = auto()   # S2: 20% random flip in preference label
+    CONTRADICTORY        = auto()   # S3: prefers B but adds constraint B already violates
+    DRASTIC_ABSOLUTE     = auto()   # S4: hard absolute threshold ("no overshoot" → < 1%)
+    DRASTIC_RELATIVE     = auto()   # S5: "better than A in everything"
+    DIRECTION_ONLY       = auto()   # S6: never reveals preference, only adds direction constraints
+    LATE_SWITCHER        = auto()   # S7: consistent for 3 iters, then reverses all weights
+    AMBIGUOUS_POSITIVE   = auto()   # S8: always says "I prefer B" even when B is worse
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,6 +89,11 @@ _PROFILES: Dict[OraclePersona, TargetProfile] = {
     OraclePersona.MONOTONE: TargetProfile(
         w_overshoot=0.1, w_settling=0.1, w_mse=1.0,
     ),
+    OraclePersona.MONOTONE_CONSTRAINED: TargetProfile(
+    w_overshoot=0.1, w_settling=0.1, w_mse=1.0,
+    ),# identical to MONOTONE
+    # No absolute threshold — constraint is relative, built in the handler
+
     OraclePersona.NOISY: TargetProfile(
         w_overshoot=0.5, w_settling=0.5, w_mse=1.0,
     ),
@@ -261,6 +267,35 @@ class Oracle:
                 "confidence": round(confidence, 2),
             },
             "constraints": [],
+        }
+
+    def _handle_monotone_constrained(self, mA, mB, iteration):
+        u_A = self.utility(mA)
+        u_B = self.utility(mB)
+        winner, loser = ("B", "A") if u_B > u_A else ("A", "B")
+        confidence = min(1.0, abs(u_B - u_A) * 5 + 0.6)
+
+        # Relative constraint: next candidate must not be worse than A on MSE
+        constraints = [{
+            "id": f"mse_no_regress_iter{iteration}",
+            "subfunction_id": "tracking_mse",
+            "constraint_type": "directional_improvement",
+            "operator": "<=",
+            "reference_candidate": "A",
+            "threshold": None,
+            "margin": 0.05,   # 5% tolerance so it's not a razor-thin boundary
+            "weight": 1.0,
+            "confidence": 0.9,
+        }]
+
+        return {
+            "feedback_type": "both",
+            "preference": {
+                "preferred_candidate": winner,
+                "other_candidate": loser,
+                "confidence": round(confidence, 2),
+            },
+            "constraints": constraints,
         }
 
     def _handle_noisy(self, mA, mB, iteration):

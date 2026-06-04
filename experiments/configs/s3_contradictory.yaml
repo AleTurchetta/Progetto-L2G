@@ -1,0 +1,98 @@
+# =============================================================================
+# S3 — CONTRADICTORY
+# =============================================================================
+# Persona: The self-defeating human.
+# Every iteration the oracle does two things simultaneously:
+#   1. Expresses a preference for B (regardless of actual utility).
+#   2. Adds an absolute constraint on overshoot set at 70% of B's *actual*
+#      overshoot — i.e. a threshold B already violates.
+# This creates a logical contradiction: the stated winner is also infeasible.
+# Purpose: Tests graceful degradation. The system must detect infeasibility
+#          (via check_real_constraints) and fall back without crashing.
+#          Measures cumulative_constraint_violations and how many retries
+#          are consumed per iteration.
+# Expected outcome: High cumulative_constraint_violations; many retries used
+#                   per iteration; convergence stalls or degrades. The system
+#                   should NOT crash — it should warn and continue.
+# =============================================================================
+
+scenario_id: S3
+persona: CONTRADICTORY
+description: >
+  Oracle prefers B unconditionally but simultaneously injects a hard overshoot
+  constraint set below B's actual value. Tests graceful handling of
+  contradictory human feedback without system failure.
+
+# ── Oracle hyperparameters ────────────────────────────────────────────────────
+oracle:
+  noise_level: 0.0          # No additional noise — contradiction is intentional
+  seed: 42
+  late_switch_iter: null
+  verbose: true
+
+# ── Hidden utility weights ────────────────────────────────────────────────────
+# (Used only for the oracle's internal U(A)/U(B) printout — not for preference)
+utility:
+  w_overshoot: 1.0
+  w_settling:  1.0
+  w_mse:       1.0
+
+# ── Hard thresholds ───────────────────────────────────────────────────────────
+# The contradiction is computed dynamically in _handle_contradictory():
+#   tight_threshold = max(0.1, B_overshoot * 0.7)
+# The value below is the profile's baseline — the dynamic override takes precedence.
+thresholds:
+  max_overshoot: 3.0        # Profile baseline; runtime value is 0.7 * B_actual
+  max_settling:  null
+  max_mse:       null
+
+# ── Contradiction parameters ──────────────────────────────────────────────────
+contradiction:
+  overshoot_tightening_factor: 0.7   # Threshold = B_actual * this factor
+  forced_winner: B                   # Always forces preference to B
+  constraint_confidence: 0.9
+
+# ── Experiment execution ──────────────────────────────────────────────────────
+experiment:
+  n_iterations:   10
+  n_seeds:        5
+  seeds:          [42, 7, 13, 99, 2025]
+  warm_start_n:   200
+  n_retries:      10        # Critical: tests how many retries get burned
+
+# ── Plant ─────────────────────────────────────────────────────────────────────
+plant:
+  wn:   1.0
+  zeta: 0.7
+
+# ── Parameter search space ───────────────────────────────────────────────────
+bounds:
+  Kp: [0.1, 5.0]
+  Ki: [0.001, 3.0]
+
+# ── Acquisition function ──────────────────────────────────────────────────────
+acquisition:
+  type: qUCB
+  beta: 3.0
+  beta_schedule: fixed
+
+# ── Constraint enforcement strategy ──────────────────────────────────────────
+constraint_mode: surrogate_mean
+
+# ── Failure mode analysis ─────────────────────────────────────────────────────
+failure_analysis:
+  record_retry_count_per_iter: true
+  record_fallback_used: true         # True when all retries exhausted
+  flag_infeasible_constraints: true  # Log when no feasible region exists in surrogate
+
+# ── Metrics to record ────────────────────────────────────────────────────────
+logging:
+  metrics:
+    - simple_regret
+    - cumulative_constraint_violations
+    - convergence_iteration
+    - preference_alignment_rate
+    - feasibility_rate
+    - avg_retries_per_iteration       # Extra: measure retry cost
+    - n_fallback_iterations           # Extra: how often max_retries exhausted
+  output_dir: experiments/results/s3_contradictory

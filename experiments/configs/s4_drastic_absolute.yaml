@@ -1,0 +1,93 @@
+# =============================================================================
+# S4 — DRASTIC ABSOLUTE
+# =============================================================================
+# Persona: The perfectionist engineer.
+# Emits hard absolute constraints every iteration:
+#   - overshoot_pct  <= 1.0 %   ("virtually no overshoot")
+#   - settling_time  <= 15.0 s
+# The thresholds are physically achievable for this plant (zeta=0.7) but
+# tight enough to significantly restrict the feasible region.
+# Purpose: Tests constrained optimisation under a narrow feasible region.
+#          Key comparison scenario for the constraint_mode variants
+#          (surrogate_mean vs ucb_constraint vs probabilistic).
+# Expected outcome: Low final overshoot (< 1%) if the system works correctly;
+#                   higher feasibility_rate than S3; non-trivial retries in
+#                   early iterations before surrogates learn the feasible region.
+# =============================================================================
+
+scenario_id: S4
+persona: DRASTIC_ABSOLUTE
+description: >
+  Hard absolute constraints: overshoot < 1% and settling time < 15 s, every
+  iteration. The key stress-test for constrained BO. Benchmark for
+  comparing surrogate_mean vs ucb_constraint enforcement strategies.
+
+# ── Oracle hyperparameters ────────────────────────────────────────────────────
+oracle:
+  noise_level: 0.0
+  seed: 42
+  late_switch_iter: null
+  verbose: true
+
+# ── Hidden utility weights ────────────────────────────────────────────────────
+utility:
+  w_overshoot: 2.0          # Heavily penalises overshoot
+  w_settling:  0.5
+  w_mse:       0.5
+
+# ── Hard thresholds ───────────────────────────────────────────────────────────
+thresholds:
+  max_overshoot: 1.0        # < 1%  — tight but achievable (overdamped region)
+  max_settling:  15.0       # < 15 s — moderate speed requirement
+  max_mse:       null
+
+# ── Experiment execution ──────────────────────────────────────────────────────
+experiment:
+  n_iterations:   10
+  n_seeds:        5
+  seeds:          [42, 7, 13, 99, 2025]
+  warm_start_n:   200
+  n_retries:      10
+
+# ── Plant ─────────────────────────────────────────────────────────────────────
+plant:
+  wn:   1.0
+  zeta: 0.7
+
+# ── Parameter search space ───────────────────────────────────────────────────
+bounds:
+  Kp: [0.1, 5.0]
+  Ki: [0.001, 3.0]
+
+# ── Acquisition function ──────────────────────────────────────────────────────
+acquisition:
+  type: qUCB
+  beta: 3.0
+  beta_schedule: fixed
+
+# ── Constraint enforcement strategy ──────────────────────────────────────────
+# THIS is the primary experimental variable for S4.
+# Run this config three times with each of the three modes to generate
+# the constraint_mode comparison table in RESULTS.md.
+constraint_mode: surrogate_mean   # Switch to: ucb_constraint | probabilistic
+
+# ── UCB-constraint specific (only used when constraint_mode = ucb_constraint) ─
+ucb_constraint:
+  k: 2.0                    # Pessimism factor: threshold vs mean + k*std
+
+# ── Probabilistic feasibility (only used when constraint_mode = probabilistic) ─
+probabilistic_constraint:
+  min_feasibility_prob: 0.80   # Must have P(constraint satisfied) >= 80%
+
+# ── Metrics to record ────────────────────────────────────────────────────────
+logging:
+  metrics:
+    - simple_regret
+    - cumulative_constraint_violations
+    - convergence_iteration
+    - preference_alignment_rate
+    - feasibility_rate
+    - avg_retries_per_iteration
+    - final_overshoot_pct         # Extra: verify hard constraint at convergence
+    - final_settling_time         # Extra: verify hard constraint at convergence
+  output_dir: experiments/results/s4_drastic_absolute

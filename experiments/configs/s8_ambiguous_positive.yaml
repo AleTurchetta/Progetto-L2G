@@ -1,0 +1,94 @@
+# =============================================================================
+# S8 — AMBIGUOUS POSITIVE
+# =============================================================================
+# Persona: The yes-man.
+# The oracle always responds "I prefer B" with confidence 0.9, regardless of
+# whether B is actually better, equal, or worse than A by any metric.
+# No constraints are ever emitted.
+# Purpose: Tests whether the system exploits false positive feedback.
+#          The PairwiseGP accumulates data that always labels B as winner,
+#          which should cause the acquisition function to constantly chase
+#          whatever was last proposed — a form of "preference collapse".
+#          Measures how badly the system diverges from the true optimum
+#          compared to S1 (which is grounded in real utility).
+# Expected outcome: High Simple Regret (random walk or divergence);
+#                   near-zero cumulative_constraint_violations (no constraints);
+#                   preference_alignment_rate ~ 0.5 (coin-flip alignment).
+#                   The experiment documents failure mode, not success.
+# =============================================================================
+
+scenario_id: S8
+persona: AMBIGUOUS_POSITIVE
+description: >
+  Oracle always says "I prefer B" with high confidence, regardless of B's
+  actual quality. No constraints emitted. Documents the failure mode of
+  trusting uncritical positive feedback.
+
+# ── Oracle hyperparameters ────────────────────────────────────────────────────
+oracle:
+  noise_level: 0.0          # Bias is systematic, not random
+  seed: 42
+  late_switch_iter: null
+  verbose: true
+
+# ── Hidden utility weights (used in diagnostics to compute real utility only) ──
+utility:
+  w_overshoot: 1.0
+  w_settling:  1.0
+  w_mse:       1.0
+
+# ── Hard thresholds ───────────────────────────────────────────────────────────
+thresholds:
+  max_overshoot: null
+  max_settling:  null
+  max_mse:       null
+
+# ── Ambiguous-positive parameters ────────────────────────────────────────────
+ambiguous_positive:
+  forced_winner: B
+  forced_confidence: 0.9
+
+# ── Experiment execution ──────────────────────────────────────────────────────
+experiment:
+  n_iterations:   10
+  n_seeds:        5
+  seeds:          [42, 7, 13, 99, 2025]
+  warm_start_n:   200
+  n_retries:      10
+
+# ── Plant ─────────────────────────────────────────────────────────────────────
+plant:
+  wn:   1.0
+  zeta: 0.7
+
+# ── Parameter search space ───────────────────────────────────────────────────
+bounds:
+  Kp: [0.1, 5.0]
+  Ki: [0.001, 3.0]
+
+# ── Acquisition function ──────────────────────────────────────────────────────
+acquisition:
+  type: qUCB
+  beta: 3.0
+  beta_schedule: fixed
+
+# ── Constraint enforcement strategy ──────────────────────────────────────────
+constraint_mode: surrogate_mean   # Irrelevant here (no constraints), kept for consistency
+
+# ── Exploitation diagnostics ──────────────────────────────────────────────────
+exploitation_analysis:
+  record_real_utility_per_iter: true     # Log U(A) and U(B) even though oracle ignores it
+  record_cases_where_B_worse: true       # Count iterations where "preferred" B had U(B)<U(A)
+  compare_with_scenario: S1             # Side-by-side regret comparison with baseline
+
+# ── Metrics to record ────────────────────────────────────────────────────────
+logging:
+  metrics:
+    - simple_regret
+    - cumulative_constraint_violations
+    - convergence_iteration
+    - preference_alignment_rate
+    - feasibility_rate
+    - n_false_positive_preferences     # Extra: iters where B was worse but still "preferred"
+    - utility_trajectory               # Extra: U(best_known) per iteration
+  output_dir: experiments/results/s8_ambiguous_positive

@@ -1,0 +1,72 @@
+# =============================================================================
+# S1 — MONOTONE
+# =============================================================================
+# Persona: The rational minimiser.
+# The oracle always prefers the candidate with the lowest weighted cost.
+# No constraints are ever emitted.
+# Purpose: Baseline sanity check. Verifies that PBO converges when feedback
+#          is perfectly consistent and noise-free.
+# Expected outcome: Monotone decrease in Simple Regret across iterations.
+# =============================================================================
+
+scenario_id: S1
+persona: MONOTONE
+description: >
+  Pure utility-based preference every iteration. No constraints injected.
+  Serves as the baseline against which all other scenarios are compared.
+
+# ── Oracle hyperparameters ────────────────────────────────────────────────────
+oracle:
+  noise_level: 0.0          # No random flips
+  seed: 42                  # Overridden per-seed at runtime
+  late_switch_iter: null    # Not applicable for this persona
+  verbose: true
+
+# ── Hidden utility weights (must match TargetProfile in oracle.py) ────────────
+utility:
+  w_overshoot: 0.1          # Nearly ignores overshoot
+  w_settling:  0.1          # Nearly ignores settling time
+  w_mse:       1.0          # Dominated by tracking error
+
+# ── Hard thresholds (null → no constraint generated) ─────────────────────────
+thresholds:
+  max_overshoot: null
+  max_settling:  null
+  max_mse:       null
+
+# ── Experiment execution ──────────────────────────────────────────────────────
+experiment:
+  n_iterations:   10
+  n_seeds:        5
+  seeds:          [42, 7, 13, 99, 2025]
+  warm_start_n:   200       # Number of Sobol samples for initialisation
+  n_retries:      10        # Max attempts to find a constraint-satisfying candidate
+
+# ── Plant (must match control_utils.make_plant) ───────────────────────────────
+plant:
+  wn:   1.0
+  zeta: 0.7                 # Well-damped; typical operating point
+
+# ── Parameter search space ───────────────────────────────────────────────────
+bounds:
+  Kp: [0.1, 5.0]
+  Ki: [0.001, 3.0]
+
+# ── Acquisition function ──────────────────────────────────────────────────────
+acquisition:
+  type: qUCB
+  beta: 3.0                 # Fixed exploration coefficient
+  beta_schedule: fixed      # Options: fixed | annealed | feedback_driven
+
+# ── Constraint enforcement strategy ──────────────────────────────────────────
+constraint_mode: surrogate_mean   # Options: surrogate_mean | ucb_constraint | probabilistic
+
+# ── Metrics to record ────────────────────────────────────────────────────────
+logging:
+  metrics:
+    - simple_regret
+    - cumulative_constraint_violations
+    - convergence_iteration
+    - preference_alignment_rate
+    - feasibility_rate
+  output_dir: experiments/results/s1_monotone

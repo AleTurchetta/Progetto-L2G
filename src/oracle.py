@@ -174,13 +174,18 @@ class Oracle:
         """
         Compute the oracle's hidden utility for a metrics dict.
         Higher is better (utility is negated cost).
-        Note: always deterministic — noise only affects the preference label in query().
+
+        U(m) = - w_ov/W * ov/100
+           - w_ts/W * ts/T_max
+           - w_mse/W * log1p(mse)
+
+        where W = w_ov + w_ts + w_mse  (L1 normalisation keeps U in [-1, 0] per term).
         """
-        p = self._profile
+        p       = self._profile
         total_w = p.w_overshoot + p.w_settling + p.w_mse + 1e-9
         u = (
-            - p.w_overshoot / total_w * metrics.get("overshoot_pct", 100.0) / 100.0
-            - p.w_settling  / total_w * metrics.get("settling_time", p.T_max) / p.T_max
+            - p.w_overshoot / total_w * metrics.get("overshoot_pct",  100.0) / 100.0
+            - p.w_settling  / total_w * metrics.get("settling_time",  p.T_max) / p.T_max
             - p.w_mse       / total_w * np.log1p(metrics.get("tracking_mse", 1e5))
         )
         return float(u)
@@ -519,66 +524,54 @@ class Oracle:
 # 4.  EXPERIMENT RUNNER HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def compute_ground_truth_optimum(plant, bounds_np, oracle: "Oracle", n_grid: int = 50, t_final: float = 40.0):
+def compute_ground_truth_optimum(
+    plant,
+    bounds_np: np.ndarray,
+    oracle: "Oracle",
+    n_grid: int = 50,
+    t_final: float = 40.0,
+):
     """
-    Evaluates the oracle's utility on a dense grid to find the ground-truth optimum.
-    Use once at the start of each experiment for regret calculation.
-
-    The utility is evaluated under the provided oracle's hidden utility function,
-    so the ground truth is always consistent with the persona being tested.
-
-    Parameters
-    ----------
-    plant : control system plant object
-    bounds_np : np.ndarray, shape [2, 2]
-        [[Kp_min, Ki_min], [Kp_max, Ki_max]]
-    oracle : Oracle
-        The experiment oracle instance. Its utility() method is deterministic
-        (noise only affects preference labels in query(), not utility values).
-    n_grid : int
-        Grid resolution per axis. Total evaluations = n_grid².
-    t_final : float
-        Simulation horizon.
+    Evaluates the oracle utility on a dense grid to find the ground-truth optimum.
+    Uses the *passed* oracle so U* is persona-specific (not hardcoded to MONOTONE).
+    Call once at the start of each experiment for regret calculation.
 
     Returns
     -------
     best_params : (Kp*, Ki*)
     best_utility : float
-    grid_data : dict with 'Kp', 'Ki', 'utility' arrays for heatmap plotting
+    grid_data : dict with 'Kp', 'Ki', 'utility' flat arrays for plotting
     """
-    import control_utils as cu
-    import torch
-
     kp_vals = np.linspace(bounds_np[0, 0], bounds_np[1, 0], n_grid)
     ki_vals = np.linspace(bounds_np[0, 1], bounds_np[1, 1], n_grid)
 
-    best_u = -np.inf
+    best_u      = -np.inf
     best_params = (kp_vals[0], ki_vals[0])
 
     grid_kp, grid_ki, grid_u = [], [], []
 
-    total = n_grid * n_grid
-    for idx, kp in enumerate(kp_vals):
-        if idx % 5 == 0:
-            print(f"  Grid search: {idx * n_grid}/{total}...", end="\r")
+    for kp in kp_vals:
         for ki in ki_vals:
-            x = torch.tensor([[kp, ki]], dtype=torch.double)
-            t, y, m = _eval(x, plant, t_final)
-            u = oracle.utility(m)
+            import torch
+            x      = torch.tensor([[kp, ki]], dtype=torch.double)
+            _, _, m = _eval(x, plant, t_final)
+            u       = oracle.utility(m)          # persona-specific utility
             grid_kp.append(kp)
             grid_ki.append(ki)
             grid_u.append(u)
             if u > best_u:
-                best_u = u
+                best_u      = u
                 best_params = (kp, ki)
 
-    print(f"  Grid search: {total}/{total} — done.        ")
-
-    return best_params, best_u, {
-        "Kp": np.array(grid_kp),
-        "Ki": np.array(grid_ki),
-        "utility": np.array(grid_u),
-    }
+    return (
+        best_params,
+        best_u,
+        {
+            "Kp":      np.array(grid_kp),
+            "Ki":      np.array(grid_ki),
+            "utility": np.array(grid_u),
+        },
+    )
 
 
 def _eval(x_tensor, plant, t_final=40.0):

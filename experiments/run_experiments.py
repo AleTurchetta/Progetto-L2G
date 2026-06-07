@@ -44,9 +44,9 @@ from plot_heatmap import plot_heatmap_panel as _plot_heatmap_panel
 # ============================================================
 # QUICK-CHANGE SECTION — edit these three lines to switch runs
 # ============================================================
-YAML_CONFIG_PATH = Path(__file__).parent / "configs" / "s1_monotone.yaml"   # ← swap to any scenario YAML
+YAML_CONFIG_PATH = Path(__file__).parent / "configs" / "s6_direction_only.yaml"   # ← swap to any scenario YAML
 ACQF_TYPE        = "qUCB"               # "qUCB" | "qEI" | "qLogEI" | "qSR"
-ACQF_BETA        = 2.0                  # UCB beta (ignored for qEI / qLogEI / qSR)
+ACQF_BETA        = 3.0                  # UCB beta (ignored for qEI / qLogEI / qSR)
 # ============================================================
 
 

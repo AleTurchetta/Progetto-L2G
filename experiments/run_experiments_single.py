@@ -59,7 +59,7 @@ load_dotenv()
 # ============================================================
 # QUICK-CHANGE SECTION — edit these three lines to switch runs
 # ============================================================
-YAML_CONFIG_PATH = Path(__file__).parent / "configs" / "s1_monotone.yaml"   # ← swap to any scenario YAML
+YAML_CONFIG_PATH = Path(__file__).parent / "configs" / "s6_direction_only.yaml"   # ← swap to any scenario YAML
 ACQF_TYPE        = "qUCB"               # "qUCB" | "qEI" | "qLogEI" | "qSR"
 ACQF_BETA        = 3.0                  # UCB beta (ignored for qEI / qLogEI / qSR)
 # ============================================================
@@ -471,7 +471,7 @@ def run_loop(cfg: dict, oracle: Oracle, plant, bounds, U_star: float,
                 obs_metrics[k].append(metricsB[k])
             obs_traj.append((tB, yB, metricsB))
 
-        # 11. Update best_idx based on oracle preference
+        # 11. Update best_idx based on oracle preference (or utility comparison if no preference given)
         idx_A = best_idx
         idx_B = len(train_x) - 1
 
@@ -482,6 +482,17 @@ def run_loop(cfg: dict, oracle: Oracle, plant, bounds, U_star: float,
         if preferred == "B":
             best_idx = idx_B
             print("  → Baseline updated to B.")
+        elif preferred is None and found_valid:
+            # Direction-only (and any no-preference path): fall back to oracle utility comparison.
+            # Without this, best_idx never moves and regret is constant for all iterations.
+            util_A = oracle.utility(metricsA)
+            util_B = oracle.utility(metricsB)
+            if util_B > util_A:
+                best_idx = idx_B
+                print(f"  → No preference; U(B)={util_B:.4f} > U(A)={util_A:.4f} — baseline updated to B.")
+            else:
+                best_idx = idx_A
+                print(f"  → No preference; U(A)={util_A:.4f} >= U(B)={util_B:.4f} — baseline unchanged.")
         else:
             best_idx = idx_A
             if preferred == "A":
@@ -489,9 +500,6 @@ def run_loop(cfg: dict, oracle: Oracle, plant, bounds, U_star: float,
             else:
                 n_new = len(parsed.constraints) if parsed else 0
                 print(f"  → No preference; baseline remains A ({n_new} new constraints).")
-
-        last_shown_x       = xB.unsqueeze(0)
-        last_shown_metrics = metricsB
 
         # 12. Track simple regret
         current_metrics = obs_traj[best_idx][2]

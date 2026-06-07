@@ -38,7 +38,7 @@ thresholds:
 
 # ── Experiment execution ──────────────────────────────────────────────────────
 experiment:
-  n_iterations:   10
+  n_iterations:   20
   n_seeds:        5
   seeds:          [42, 7, 13, 99, 2025]
   warm_start_n:   20

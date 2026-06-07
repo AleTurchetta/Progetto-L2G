@@ -1,11 +1,10 @@
+# Removed all LLM related objects from this file to be able to run my experiments 
+
 import json
 from typing import Any, Callable, Dict, List, Optional, Tuple, Literal
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
 import torch
 from torch import Tensor
-from dotenv import load_dotenv
 
 # ====== DATA STRUCTURES (PYDANTIC) ============================================
 
@@ -28,31 +27,10 @@ class ConstraintSpec(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
 class L2GOutput(BaseModel):
-    """Output strutturato atteso dall'LLM."""
+    """Output strutturato atteso dall'oracle."""
     feedback_type: Literal["both", "preference_only", "direction_only", "none"]
     preference: Optional[Preference] = None
     constraints: List[ConstraintSpec] = Field(default_factory=list)
-
-# ====== PROMPT TEMPLATE =======================================================
-
-L2G_SYSTEM_PROMPT = """
-You are a Language-to-Guidance (L2G) engine for Preference-based Bayesian Optimization.
-Your goal is to parse human feedback into mathematical constraints.
-
-CONTEXT:
-{context_json}
-
-INSTRUCTIONS:
-1. Analyze the user feedback comparing candidates (e.g., A vs B).
-2. Extract global preferences (Who won?).
-3. Extract constraints on specific subfunctions (metrics) defined in the CONTEXT.
-4. Return pure JSON matching the provided schema.
-
-IMPORTANT CLASSIFICATION RULES:
-- If the user says "I prefer A" AND adds a condition (e.g., "but ensure overshoot < 5%"), set feedback_type to "both".
-- If the user only gives a preference, use "preference_only".
-- If the user only gives a constraint/instruction, use "direction_only".
-"""
 
 # ====== L2G ENGINE ============================================================
 
@@ -61,16 +39,15 @@ class L2GEngine:
         self,
         context: Dict[str, Any],
         sub_surrogates: Dict[str, Callable[[Tensor], Tensor]],
-        llm: Optional[ChatOpenAI] = None,
+        llm: Optional[Any] = None,  # kept for API compatibility, not used
         min_confidence: float = 0.5,
     ):
         self.context = context
         self.sub_surrogates = sub_surrogates
-        self.llm = llm
         self.min_confidence = min_confidence
 
         # State storage
-        self.preference_history: List[Tuple[Tensor, Tensor]] = [] # (x_pref, x_other)
+        self.preference_history: List[Tuple[Tensor, Tensor]] = []  # (x_pref, x_other)
         self.constraint_specs: List[ConstraintSpec] = []
 
     # -------------------------------------------------------------------------
@@ -80,17 +57,19 @@ class L2GEngine:
     def process_feedback(
         self,
         candidates: Dict[str, Tensor],
-        feedback_text: str,
+        feedback_text: str = "",
         simulated_output: Optional[Dict[str, Any]] = None,
     ):
         """
-        Main entry point. Parse text -> Update internal state.
+        Main entry point. Parses oracle output -> Updates internal state.
+        Always pass simulated_output when using the oracle (LLM is disabled).
         """
-        # 1. Ottieni output strutturato (da LLM o simulazione)
-        if simulated_output:
-            parsed_output = L2GOutput(**simulated_output)
-        else:
-            parsed_output = self._call_llm(feedback_text)
+        if simulated_output is None:
+            raise ValueError(
+                "LLM is disabled. You must pass simulated_output from the oracle."
+            )
+
+        parsed_output = L2GOutput(**simulated_output)
 
         # 2. Aggiorna Preferenze
         if parsed_output.feedback_type in ("both", "preference_only") and parsed_output.preference:
@@ -104,34 +83,12 @@ class L2GEngine:
         # 3. Aggiorna Vincoli
         if parsed_output.feedback_type in ("both", "direction_only"):
             valid_constraints = [
-                c for c in parsed_output.constraints 
+                c for c in parsed_output.constraints
                 if c.confidence >= self.min_confidence
             ]
             self.constraint_specs.extend(valid_constraints)
-        
+
         return parsed_output
-
-    def _call_llm(self, feedback_text: str) -> L2GOutput:
-        """Invoca LLM usando Structured Output (metodo moderno)."""
-        if not self.llm:
-            raise ValueError("LLM instance not provided.")
-
-        # Configura chain con output strutturato Pydantic
-        structured_llm = self.llm.with_structured_output(L2GOutput)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", L2G_SYSTEM_PROMPT),
-            ("user", "{feedback_text}")
-        ])
-        chain = prompt | structured_llm
-        
-        response =  chain.invoke({
-            "context_json": json.dumps(self.context, ensure_ascii=False),
-            "feedback_text": feedback_text
-        })
-
-        print("LLM Parsed Output:", response)
-
-        return response
 
     # -------------------------------------------------------------------------
     # 2) EXPORT PER PBO / BOTORCH
@@ -161,8 +118,6 @@ class L2GEngine:
             if threshold_val is None:
                 continue
 
-            # Creiamo la funzione vincolo
-            # Nota: threshold_val è float, J_model è callable
             constraint_func = self._create_constraint_func(J_model, threshold_val, spec.operator)
             constraints.append((constraint_func, True))
 
@@ -173,82 +128,60 @@ class L2GEngine:
     # -------------------------------------------------------------------------
 
     def _calculate_threshold(
-        self, 
-        spec: ConstraintSpec, 
+        self,
+        spec: ConstraintSpec,
         candidates_reference: Dict[str, Tensor],
         J_model: Callable[[Tensor], Tensor]
     ) -> Optional[float]:
         """Calcola il valore numerico della soglia in base al tipo di vincolo."""
-        
+
         if spec.constraint_type == "upper_bound_absolute":
             return spec.threshold
 
-        # Per vincoli relativi, serve il candidato di riferimento (es. "A")
         if not spec.reference_candidate or spec.reference_candidate not in candidates_reference:
             return None
 
         x_ref = self._ensure_2d(candidates_reference[spec.reference_candidate])
-        
+
         with torch.no_grad():
-            val_ref = J_model(x_ref).item() # Assumiamo output scalare
+            val_ref = J_model(x_ref).item()
 
         if spec.constraint_type == "upper_bound_relative":
             return val_ref + spec.margin
         elif spec.constraint_type == "directional_improvement":
-            return val_ref - spec.margin # Deve essere "migliore di ref" (assumendo minimizzazione < val_ref)
-        
+            return val_ref - spec.margin
+
         return None
 
     @staticmethod
-    def _create_constraint_func(model: Callable, limit: float,operator: str = "<=") -> Callable[[Tensor], Tensor]:
+    def _create_constraint_func(model: Callable, limit: float, operator: str = "<=") -> Callable[[Tensor], Tensor]:
         """
         Factory per creare la closure corretta.
         BoTorch vuole c(x) >= 0.
         Se il vincolo è Model(x) <= Limit -> Limit - Model(x) >= 0.
         """
         def constraint(X: Tensor) -> Tensor:
-            # X can have shapes:
-            # - [batch, d] during optimization
-            # - [q, batch, d] for joint optimization
-            
-            # Determine the batch shape (all dims except the last one, d)
             batch_shape = X.shape[:-1]
-            
-            # Get model prediction (This tensor HAS gradients)
-            model_output = model(X)  
-            
-            # --- FIX: Ensure shapes align using Tensor operations, NOT .item() ---
-            
-            # 1. Remove trailing singleton dimensions (e.g., [N, 1] -> [N])
-            # Be careful not to squeeze if it's a scalar [1] and batch is scalar
+
+            model_output = model(X)
+
             while model_output.dim() > len(batch_shape) and model_output.shape[-1] == 1:
                 model_output = model_output.squeeze(-1)
-            
-            # 2. Handle Scalar outputs (e.g. output is [], batch is [q, batch])
-            if model_output.dim() == 0:
-                # Expand scalar to match batch shape
-                model_output = model_output.expand(batch_shape)
-                
-            # 3. Handle Mismatches (Broadcast or Reshape)
-            elif model_output.shape != batch_shape:
-                # If we have [q*batch] but need [q, batch]
-                if model_output.numel() == X.shape[:-1].numel():
-                     model_output = model_output.view(batch_shape)
-                # If we have [batch] but need [q, batch] (Broadcasting)
-                elif model_output.shape == batch_shape[1:]: 
-                     model_output = model_output.expand(batch_shape)
-                else:
-                    # Try automatic broadcasting as a last resort
-                    pass
 
-            # Calculate the constraint value
-            # Since model_output tracks gradients, 'result' will also track gradients.
-            if operator =='<=':
-                return limit - model_output # >= 0  <=> model <= limit
+            if model_output.dim() == 0:
+                model_output = model_output.expand(batch_shape)
+            elif model_output.shape != batch_shape:
+                if model_output.numel() == X.shape[:-1].numel():
+                    model_output = model_output.view(batch_shape)
+                elif model_output.shape == batch_shape[1:]:
+                    model_output = model_output.expand(batch_shape)
+
+            if operator == '<=':
+                return limit - model_output
             elif operator == ">=":
-                return model_output - limit  # >= 0  <=> model >= limit
-            return limit - model_output # Default case
-        
+                return model_output - limit
+            return limit - model_output
+
         return constraint
 
     @staticmethod

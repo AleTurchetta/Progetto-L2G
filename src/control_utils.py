@@ -41,7 +41,7 @@ def simulate_step(Kp: float, Ki: float, plant, t_final: float = 40.0, n_points: 
     T = np.linspace(0, t_final, n_points)
     sys_cl = closed_loop_sys(Kp, Ki, plant)
     t, y = control.step_response(sys_cl, T)
-    return t, y
+    return t, np.squeeze(y)
 
 
 def compute_metrics(t: np.ndarray, y: np.ndarray, ref: float = 1.0, settle_tol: float = 0.02):
@@ -55,7 +55,7 @@ def compute_metrics(t: np.ndarray, y: np.ndarray, ref: float = 1.0, settle_tol: 
     e = ref - y
 
     # MSE (integrale / durata)
-    tracking_mse = np.trapz(e ** 2, t) / (t[-1] - t[0])
+    tracking_mse = np.trapezoid(e ** 2, t) / (t[-1] - t[0])
 
     # Overshoot (% rispetto a ref)
     peak = np.max(y)
@@ -72,10 +72,10 @@ def compute_metrics(t: np.ndarray, y: np.ndarray, ref: float = 1.0, settle_tol: 
                 break
 
     return {
-        "tracking_mse": tracking_mse,
-        "overshoot_pct": overshoot_pct,
-        "settling_time": settling_time,
-    }
+    "tracking_mse": float(tracking_mse),
+    "overshoot_pct": float(overshoot_pct),
+    "settling_time": float(settling_time) if not np.isnan(settling_time) else float("nan"),
+}
 
 
 def plot_two_responses(

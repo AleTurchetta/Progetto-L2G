@@ -90,9 +90,8 @@ _PROFILES: Dict[OraclePersona, TargetProfile] = {
         w_overshoot=0.1, w_settling=0.1, w_mse=1.0,
     ),
     OraclePersona.MONOTONE_CONSTRAINED: TargetProfile(
-    w_overshoot=0.1, w_settling=0.1, w_mse=1.0,
-    ),# identical to MONOTONE
-    # No absolute threshold — constraint is relative, built in the handler
+        w_overshoot=0.1, w_settling=0.1, w_mse=1.0,
+    ),  # identical utility to MONOTONE; constraint is relative, built in handler
 
     OraclePersona.NOISY: TargetProfile(
         w_overshoot=0.5, w_settling=0.5, w_mse=1.0,
@@ -115,7 +114,7 @@ _PROFILES: Dict[OraclePersona, TargetProfile] = {
         max_overshoot=5.0,
     ),
     OraclePersona.LATE_SWITCHER: TargetProfile(
-        # Initial weights (will flip at iteration 4)
+        # Initial weights (will flip at iteration late_switch_iter)
         w_overshoot=2.0, w_settling=0.2, w_mse=0.5,
     ),
     OraclePersona.AMBIGUOUS_POSITIVE: TargetProfile(
@@ -175,6 +174,7 @@ class Oracle:
         """
         Compute the oracle's hidden utility for a metrics dict.
         Higher is better (utility is negated cost).
+        Note: always deterministic — noise only affects the preference label in query().
         """
         p = self._profile
         total_w = p.w_overshoot + p.w_settling + p.w_mse + 1e-9
@@ -220,14 +220,15 @@ class Oracle:
 
         # Route to persona handler
         handler = {
-            OraclePersona.MONOTONE:           self._handle_monotone,
-            OraclePersona.NOISY:              self._handle_noisy,
-            OraclePersona.CONTRADICTORY:      self._handle_contradictory,
-            OraclePersona.DRASTIC_ABSOLUTE:   self._handle_drastic_absolute,
-            OraclePersona.DRASTIC_RELATIVE:   self._handle_drastic_relative,
-            OraclePersona.DIRECTION_ONLY:     self._handle_direction_only,
-            OraclePersona.LATE_SWITCHER:      self._handle_late_switcher,
-            OraclePersona.AMBIGUOUS_POSITIVE: self._handle_ambiguous_positive,
+            OraclePersona.MONOTONE:             self._handle_monotone,
+            OraclePersona.MONOTONE_CONSTRAINED: self._handle_monotone_constrained,
+            OraclePersona.NOISY:                self._handle_noisy,
+            OraclePersona.CONTRADICTORY:        self._handle_contradictory,
+            OraclePersona.DRASTIC_ABSOLUTE:     self._handle_drastic_absolute,
+            OraclePersona.DRASTIC_RELATIVE:     self._handle_drastic_relative,
+            OraclePersona.DIRECTION_ONLY:       self._handle_direction_only,
+            OraclePersona.LATE_SWITCHER:        self._handle_late_switcher,
+            OraclePersona.AMBIGUOUS_POSITIVE:   self._handle_ambiguous_positive,
         }[self.persona]
 
         output = handler(metrics_A, metrics_B, iteration)
@@ -270,6 +271,7 @@ class Oracle:
         }
 
     def _handle_monotone_constrained(self, mA, mB, iteration):
+        """S1b: Utility comparison + relative constraint (no MSE regression vs A)."""
         u_A = self.utility(mA)
         u_B = self.utility(mB)
         winner, loser = ("B", "A") if u_B > u_A else ("A", "B")
@@ -283,7 +285,7 @@ class Oracle:
             "operator": "<=",
             "reference_candidate": "A",
             "threshold": None,
-            "margin": 0.05,   # 5% tolerance so it's not a razor-thin boundary
+            "margin": 0.05,   # 5% tolerance so it's not razor-thin
             "weight": 1.0,
             "confidence": 0.9,
         }]
@@ -307,9 +309,6 @@ class Oracle:
         S3: Prefers B (by utility), but then adds a hard constraint that B
         already violates — forcing the system into an infeasible state.
         """
-        u_A = self.utility(mA)
-        u_B = self.utility(mB)
-
         # Force preference toward B (even if B is worse)
         winner, loser = "B", "A"
         confidence = 0.75
@@ -399,11 +398,8 @@ class Oracle:
         u_B = self.utility(mB)
         winner, loser = ("B", "A") if u_B > u_A else ("A", "B")
 
-        # Only add "better than A" constraints in early iterations to push exploration
         constraints = []
-        metrics_to_constrain = ["overshoot_pct", "settling_time", "tracking_mse"]
-
-        for metric in metrics_to_constrain:
+        for metric in ["overshoot_pct", "settling_time", "tracking_mse"]:
             constraints.append({
                 "id": f"rel_{metric}_vs_A_iter{iteration}",
                 "subfunction_id": metric,
@@ -487,7 +483,7 @@ class Oracle:
             "constraints": [],
         }
 
-    # ─── Internal Helpers ────────────────────────────────────────────────────
+    # ─── Helpers ────────────────────────────────────────────────────
 
     def _flip_weights(self):
         """Called once when LATE_SWITCHER reaches the switch iteration."""
@@ -523,46 +519,70 @@ class Oracle:
 # 4.  EXPERIMENT RUNNER HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def compute_ground_truth_optimum(plant, bounds_np, n_grid=50, t_final=40.0):
+def compute_ground_truth_optimum(plant, bounds_np, oracle: "Oracle", n_grid: int = 50, t_final: float = 40.0):
     """
-    Evaluates the oracle utility on a dense grid to find the ground-truth optimum.
+    Evaluates the oracle's utility on a dense grid to find the ground-truth optimum.
     Use once at the start of each experiment for regret calculation.
+
+    The utility is evaluated under the provided oracle's hidden utility function,
+    so the ground truth is always consistent with the persona being tested.
+
+    Parameters
+    ----------
+    plant : control system plant object
+    bounds_np : np.ndarray, shape [2, 2]
+        [[Kp_min, Ki_min], [Kp_max, Ki_max]]
+    oracle : Oracle
+        The experiment oracle instance. Its utility() method is deterministic
+        (noise only affects preference labels in query(), not utility values).
+    n_grid : int
+        Grid resolution per axis. Total evaluations = n_grid².
+    t_final : float
+        Simulation horizon.
 
     Returns
     -------
     best_params : (Kp*, Ki*)
     best_utility : float
-    grid_data : dict with 'Kp', 'Ki', 'utility' arrays for plotting
+    grid_data : dict with 'Kp', 'Ki', 'utility' arrays for heatmap plotting
     """
     import control_utils as cu
+    import torch
 
     kp_vals = np.linspace(bounds_np[0, 0], bounds_np[1, 0], n_grid)
     ki_vals = np.linspace(bounds_np[0, 1], bounds_np[1, 1], n_grid)
-
-    # Use a neutral oracle for ground truth (uniform weights)
-    oracle_gt = Oracle(persona=OraclePersona.MONOTONE, noise_level=0.0)
 
     best_u = -np.inf
     best_params = (kp_vals[0], ki_vals[0])
 
     grid_kp, grid_ki, grid_u = [], [], []
 
-    for kp in kp_vals:
+    total = n_grid * n_grid
+    for idx, kp in enumerate(kp_vals):
+        if idx % 5 == 0:
+            print(f"  Grid search: {idx * n_grid}/{total}...", end="\r")
         for ki in ki_vals:
-            import torch
             x = torch.tensor([[kp, ki]], dtype=torch.double)
             t, y, m = _eval(x, plant, t_final)
-            u = oracle_gt.utility(m)
-            grid_kp.append(kp); grid_ki.append(ki); grid_u.append(u)
+            u = oracle.utility(m)
+            grid_kp.append(kp)
+            grid_ki.append(ki)
+            grid_u.append(u)
             if u > best_u:
                 best_u = u
                 best_params = (kp, ki)
 
-    return best_params, best_u, {"Kp": np.array(grid_kp), "Ki": np.array(grid_ki), "utility": np.array(grid_u)}
+    print(f"  Grid search: {total}/{total} — done.        ")
+
+    return best_params, best_u, {
+        "Kp": np.array(grid_kp),
+        "Ki": np.array(grid_ki),
+        "utility": np.array(grid_u),
+    }
 
 
 def _eval(x_tensor, plant, t_final=40.0):
-    """Thin wrapper matching what test_PI.py's evaluate_candidate does."""
+    """Thin simulation wrapper (mirrors evaluate_candidate in run scripts)."""
     import control_utils as cu
     import numpy as np
     kp = float(x_tensor[0, 0].item())
@@ -590,7 +610,6 @@ if __name__ == "__main__":
         print(f"\n--- Persona: {persona.name} ---")
         o = Oracle(persona=persona, noise_level=0.0, seed=42, verbose=True)
         out = o.query(fake_mA, fake_mB, iteration=1)
-        # Validate structure
         assert "feedback_type" in out
         assert "preference" in out
         assert "constraints" in out

@@ -22,6 +22,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'analysis'))
+
 # Re-use all helpers from the single-seed script
 from run_experiments_single import (
     load_config,
@@ -32,12 +37,16 @@ from run_experiments_single import (
 )
 from oracle import compute_ground_truth_optimum
 
+# Analysis plotting functions (panel-level)
+from plot_regret import plot_regret_multi as _plot_regret_multi_panel
+from plot_heatmap import plot_heatmap_panel as _plot_heatmap_panel
+
 # ============================================================
 # QUICK-CHANGE SECTION — edit these three lines to switch runs
 # ============================================================
 YAML_CONFIG_PATH = Path(__file__).parent / "configs" / "s1_monotone.yaml"   # ← swap to any scenario YAML
 ACQF_TYPE        = "qUCB"               # "qUCB" | "qEI" | "qLogEI" | "qSR"
-ACQF_BETA        = 3.0                  # UCB beta (ignored for qEI / qLogEI / qSR)
+ACQF_BETA        = 2.0                  # UCB beta (ignored for qEI / qLogEI / qSR)
 # ============================================================
 
 
@@ -54,11 +63,15 @@ def plot_results_multi(
     cfg:          dict,
     acqf_type:    str,
     seeds:        list,
+    U_star:       float,
 ):
     """
-    Two-panel figure:
-      Left  — mean ± std simple regret curve across all seeds
-      Right — oracle utility heatmap with the last seed's trajectory overlaid
+    Two-panel figure assembled from analysis-folder panel functions:
+      Left  — mean ± std simple regret across all seeds  (plot_regret.plot_regret_multi)
+      Right — oracle utility heatmap with last seed's trajectory  (plot_heatmap.plot_heatmap_panel)
+
+    Saves to cfg["logging"]["output_dir"] and closes the figure without
+    blocking the terminal (plt.show() is intentionally omitted).
 
     Parameters
     ----------
@@ -70,11 +83,10 @@ def plot_results_multi(
     cfg               : loaded YAML config
     acqf_type         : acquisition function label
     seeds             : list of seeds used
+    U_star            : ground-truth utility maximum
     """
     persona_name = cfg["persona"]
-    n_iters      = len(mean_regrets)
     n_seeds      = len(seeds)
-    iters        = np.arange(1, n_iters + 1)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
     fig.suptitle(
@@ -82,68 +94,24 @@ def plot_results_multi(
         fontsize=13,
     )
 
-    # ── Mean ± std simple regret ─────────────────────────────────────────────
-    # Plot individual seed traces faintly
-    for i, row in enumerate(all_regrets):
-        ax1.plot(iters, row, color="steelblue", alpha=0.15, linewidth=1)
-
-    # Mean line + shaded ±1 std band
-    ax1.plot(iters, mean_regrets, "b-o", linewidth=2.5, markersize=6, label="Mean regret")
-    ax1.fill_between(
-        iters,
-        mean_regrets - std_regrets,
-        mean_regrets + std_regrets,
-        alpha=0.25,
-        color="steelblue",
-        label="±1 std",
-    )
-    ax1.axhline(0, color="gray", linestyle="--", linewidth=1, alpha=0.6)
-    ax1.set_xlabel("Iteration")
-    ax1.set_ylabel("Simple Regret  (U* − U_best)")
-    ax1.set_title(f"Simple Regret  (mean ± std, {n_seeds} seeds)")
-    ax1.set_xlim(0.5, n_iters + 0.5)
-    ax1.legend(fontsize=9)
-
-    # Annotate the first iteration where mean regret drops below 0.05
-    CONVERGENCE_THRESHOLD = 0.05
-    conv_iters = np.where(mean_regrets <= CONVERGENCE_THRESHOLD)[0]
-    if len(conv_iters) > 0:
-        ci = conv_iters[0] + 1  # 1-indexed
-        ax1.axvline(ci, color="orange", linestyle=":", linewidth=1.5, alpha=0.8)
-        ax1.text(
-            ci + 0.1, ax1.get_ylim()[1] * 0.9,
-            f"conv. @ iter {ci}",
-            color="orange", fontsize=8,
-        )
-
-    # ── Utility heatmap (last seed trajectory) ───────────────────────────────
-    kp_unique = np.unique(grid_data["Kp"])
-    ki_unique = np.unique(grid_data["Ki"])
-    U_2d = grid_data["utility"].reshape(len(kp_unique), len(ki_unique))
-
-    cf = ax2.contourf(kp_unique, ki_unique, U_2d.T, levels=50, cmap="viridis")
-    plt.colorbar(cf, ax=ax2, label="Oracle Utility")
-
-    if best_traj_x_last:
-        traj = np.array(best_traj_x_last)
-        ax2.plot(traj[:, 0], traj[:, 1], "w-o", markersize=5, linewidth=1.5,
-                 label=f"Trajectory (seed {seeds[-1]})", zorder=4)
-        ax2.scatter(traj[0, 0], traj[0, 1], c="cyan", s=80, zorder=5,
-                    label="Start", edgecolors="k", linewidths=0.5)
-        ax2.scatter(traj[-1, 0], traj[-1, 1], c="red", s=100, zorder=5,
-                    label="Final best", edgecolors="k", linewidths=0.5)
-
-    best_gt_idx = int(np.argmax(grid_data["utility"]))
-    ax2.scatter(
-        grid_data["Kp"][best_gt_idx], grid_data["Ki"][best_gt_idx],
-        marker="*", c="yellow", s=220, zorder=6, label="U* (ground truth)",
-        edgecolors="k", linewidths=0.5,
+    # Left panel — mean ± std regret with individual seed traces and convergence annotation
+    _plot_regret_multi_panel(
+        all_regrets,
+        u_star=U_star,
+        title=f"Simple Regret  (mean ± std, {n_seeds} seeds)",
+        ax=ax1,
+        show_seeds=True,
+        annotate_convergence=True,
     )
 
-    ax2.set_xlabel("Kp")
-    ax2.set_ylabel("Ki")
-    ax2.set_title(f"Utility Landscape  (trajectory from seed {seeds[-1]})")
-    ax2.legend(fontsize=8, loc="upper right")
+    # Right panel — utility heatmap with last seed's best-so-far trajectory
+    _plot_heatmap_panel(
+        grid_data,
+        best_traj_x_last,
+        title=f"Utility Landscape  (trajectory from seed {seeds[-1]})",
+        seed_label=f"seed {seeds[-1]}",
+        ax=ax2,
+    )
 
     plt.tight_layout()
 
@@ -152,7 +120,7 @@ def plot_results_multi(
     fname = out_dir / f"multi_{n_seeds}seeds_{acqf_type}.png"
     plt.savefig(fname, dpi=150, bbox_inches="tight")
     print(f"Plot saved → {fname}")
-    plt.show()
+    plt.close("all")   # avoids blocking the terminal (no plt.show())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -189,7 +157,7 @@ def main():
             cfg, oracle, plant, bounds, U_star, ACQF_TYPE, ACQF_BETA, seed
         )
         all_regrets.append(regrets)
-        best_traj_x_last = best_traj_x   # keep last seed for heatmap overlay
+        best_traj_x_last = best_traj_x
 
         print(
             f"  Seed {seed} complete — "
@@ -212,7 +180,7 @@ def main():
     plot_results_multi(
         mean_regrets, std_regrets, all_regrets,
         best_traj_x_last, grid_data,
-        cfg, ACQF_TYPE, seeds,
+        cfg, ACQF_TYPE, seeds, U_star,
     )
 
     # ── Summary table ────────────────────────────────────────────────────────

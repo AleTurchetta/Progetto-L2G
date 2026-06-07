@@ -41,7 +41,7 @@ experiment:
   n_iterations:   10
   n_seeds:        5
   seeds:          [42, 7, 13, 99, 2025]
-  warm_start_n:   200
+  warm_start_n:   20
   n_retries:      10
 
 # ── Plant ─────────────────────────────────────────────────────────────────────
@@ -57,17 +57,16 @@ bounds:
 # ── Acquisition function ──────────────────────────────────────────────────────
 acquisition:
   type: qUCB
-  beta: 3.0
+  beta: 2.0
   beta_schedule: fixed
 
 # ── Constraint enforcement strategy ──────────────────────────────────────────
 constraint_mode: surrogate_mean
 
 # ── Noise analysis extras ─────────────────────────────────────────────────────
-# These flags tell run_experiment.py to log additional data for noise analysis.
 noise_analysis:
-  record_flipped_iterations: true   # Log which iterations had a flip
-  compare_with_scenario: S1         # For relative regret comparison
+  record_flipped_iterations: true
+  compare_with_scenario: S1
 
 # ── Metrics to record ────────────────────────────────────────────────────────
 logging:
@@ -77,5 +76,5 @@ logging:
     - convergence_iteration
     - preference_alignment_rate
     - feasibility_rate
-    - n_flipped_labels            # Extra: count of actual flips per run
+    - n_flipped_labels
   output_dir: experiments/results/s2_noisy

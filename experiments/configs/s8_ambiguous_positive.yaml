@@ -6,14 +6,9 @@
 # whether B is actually better, equal, or worse than A by any metric.
 # No constraints are ever emitted.
 # Purpose: Tests whether the system exploits false positive feedback.
-#          The PairwiseGP accumulates data that always labels B as winner,
-#          which should cause the acquisition function to constantly chase
-#          whatever was last proposed — a form of "preference collapse".
-#          Measures how badly the system diverges from the true optimum
-#          compared to S1 (which is grounded in real utility).
 # Expected outcome: High Simple Regret (random walk or divergence);
-#                   near-zero cumulative_constraint_violations (no constraints);
-#                   preference_alignment_rate ~ 0.5 (coin-flip alignment).
+#                   near-zero cumulative_constraint_violations;
+#                   preference_alignment_rate ~ 0.5.
 #                   The experiment documents failure mode, not success.
 # =============================================================================
 
@@ -26,12 +21,12 @@ description: >
 
 # ── Oracle hyperparameters ────────────────────────────────────────────────────
 oracle:
-  noise_level: 0.0          # Bias is systematic, not random
+  noise_level: 0.0
   seed: 42
   late_switch_iter: null
   verbose: true
 
-# ── Hidden utility weights (used in diagnostics to compute real utility only) ──
+# ── Hidden utility weights ────────────────────────────────────────────────────
 utility:
   w_overshoot: 1.0
   w_settling:  1.0
@@ -53,7 +48,7 @@ experiment:
   n_iterations:   10
   n_seeds:        5
   seeds:          [42, 7, 13, 99, 2025]
-  warm_start_n:   200
+  warm_start_n:   20
   n_retries:      10
 
 # ── Plant ─────────────────────────────────────────────────────────────────────
@@ -69,17 +64,17 @@ bounds:
 # ── Acquisition function ──────────────────────────────────────────────────────
 acquisition:
   type: qUCB
-  beta: 3.0
+  beta: 2.0
   beta_schedule: fixed
 
 # ── Constraint enforcement strategy ──────────────────────────────────────────
-constraint_mode: surrogate_mean   # Irrelevant here (no constraints), kept for consistency
+constraint_mode: surrogate_mean
 
 # ── Exploitation diagnostics ──────────────────────────────────────────────────
 exploitation_analysis:
-  record_real_utility_per_iter: true     # Log U(A) and U(B) even though oracle ignores it
-  record_cases_where_B_worse: true       # Count iterations where "preferred" B had U(B)<U(A)
-  compare_with_scenario: S1             # Side-by-side regret comparison with baseline
+  record_real_utility_per_iter: true
+  record_cases_where_B_worse: true
+  compare_with_scenario: S1
 
 # ── Metrics to record ────────────────────────────────────────────────────────
 logging:
@@ -89,6 +84,6 @@ logging:
     - convergence_iteration
     - preference_alignment_rate
     - feasibility_rate
-    - n_false_positive_preferences     # Extra: iters where B was worse but still "preferred"
-    - utility_trajectory               # Extra: U(best_known) per iteration
+    - n_false_positive_preferences
+    - utility_trajectory
   output_dir: experiments/results/s8_ambiguous_positive

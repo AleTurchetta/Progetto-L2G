@@ -1,93 +1,48 @@
 # =============================================================================
 # S1b — MONOTONE CONSTRAINED
 # =============================================================================
-# Persona: MONOTONE_CONSTRAINED
-# The oracle behaves identically to S1 in terms of preference: it always
-# picks the candidate with higher utility (MSE-dominated, w_mse=1.0).
-# The difference is that it also emits one relative constraint every iteration:
-#
-#   tracking_mse(next) <= tracking_mse(A) + 5%   [directional_improvement, margin=0.05]
-#
-# This is a "no-regression" guard: the new candidate must not make MSE
-# meaningfully worse than the current baseline A. Because the constraint is
-# relative to A and A only ever improves (best_idx moves to better points),
-# the feasible region tightens monotonically — but never collapses, because
-# margin=0.05 gives a 5% tolerance band.
-#
-# Constraint is constructed in _handle_monotone_constrained():
-#   id:               mse_no_regress_iter{N}
-#   subfunction_id:   tracking_mse
-#   constraint_type:  directional_improvement
-#   operator:         <=
-#   reference_candidate: A
-#   threshold:        null   (resolved at runtime via _calculate_threshold)
-#   margin:           0.05   (limit = A_mse + 0.05; "5 % slack")
-#   weight:           1.0
-#   confidence:       0.9
-#
-# Purpose: Minimal "constrained baseline" that sits between S1 (unconstrained)
-#          and S5 (all-metrics relative). Isolates the effect of a single,
-#          well-aligned, always-satisfiable relative constraint on convergence.
-#          The constraint is never contradictory because it simply prevents
-#          the system from proposing something worse than where it already is.
-#
-# Expected outcome:
-#   - Convergence speed close to S1 (constraint is loose enough not to block).
-#   - Near-zero cumulative_constraint_violations (constraint is aligned with
-#     the preference direction — lower MSE satisfies both).
-#   - Provides the "easy relative constraint" data point for the
-#     constraint_mode comparison (surrogate_mean vs ucb_constraint).
+# Persona: MONOTONE + non-trivial but reachable absolute thresholds.
+# The oracle prefers on utility AND emits the same two constraints every
+# iteration (overshoot < 10%, settling < 20 s).
+# Purpose: Isolates constraint-handling from preference-model issues.
+#          The constraints are satisfiable, so the system should converge
+#          while respecting them. Measures how much the constraint channel
+#          *helps* vs the unconstrained S1 baseline.
+# Expected outcome: Slightly slower convergence than S1 but zero (or near-zero)
+#                   cumulative constraint violations once warm-up ends.
 # =============================================================================
 
 scenario_id: S1b
 persona: MONOTONE_CONSTRAINED
 description: >
-  MSE-dominant utility preference (identical to S1) plus a single relative
-  no-regression constraint: tracking_mse(next) <= tracking_mse(A) + 5%.
-  Acts as the minimal constrained baseline between S1 and S5.
+  Monotone utility preference with mild, always-satisfiable relative constraint
+  (no MSE regression vs A). Acts as a constrained baseline alongside S1.
 
 # ── Oracle hyperparameters ────────────────────────────────────────────────────
 oracle:
-  noise_level: 0.0          # No label noise — isolates constraint effect only
-  seed: 42                  # Overridden per-seed at runtime
-  late_switch_iter: null    # Not applicable
+  noise_level: 0.0
+  seed: 42
+  late_switch_iter: null
   verbose: true
 
-# ── Hidden utility weights (must match MONOTONE_CONSTRAINED TargetProfile) ────
+# ── Hidden utility weights ────────────────────────────────────────────────────
 utility:
-  w_overshoot: 0.1          # Nearly ignores overshoot — identical to S1
-  w_settling:  0.1          # Nearly ignores settling time — identical to S1
-  w_mse:       1.0          # MSE-dominated
+  w_overshoot: 0.1
+  w_settling:  0.1
+  w_mse:       1.0
 
-# ── Hard thresholds ───────────────────────────────────────────────────────────
-# No absolute thresholds. The constraint is relative, built dynamically
-# inside _handle_monotone_constrained() using reference_candidate="A".
+# ── Hard thresholds ──────────────────────────────────────────────────────────
 thresholds:
   max_overshoot: null
   max_settling:  null
   max_mse:       null
 
-# ── Relative constraint parameters (documents the handler's behaviour) ────────
-relative_constraint:
-  subfunction_id: tracking_mse
-  constraint_type: directional_improvement
-  operator: "<="
-  reference_candidate: A         # Resolved to cand_ref["A"] = train_x[best_idx]
-  threshold: null                # Computed at runtime: A_mse + margin
-  margin: 0.05                   # 5% tolerance — limit = A_mse * (1 + 0.05)?
-                                 # NOTE: in _calculate_threshold, margin is added
-                                 # directly: limit = val_ref + margin.
-                                 # For MSE values typically in [0.01, 1.0],
-                                 # this is an absolute slack of 0.05 units.
-  weight: 1.0
-  confidence: 0.9
-
 # ── Experiment execution ──────────────────────────────────────────────────────
 experiment:
-  n_iterations:   10
+  n_iterations:   20
   n_seeds:        5
   seeds:          [42, 7, 13, 99, 2025]
-  warm_start_n:   200
+  warm_start_n:   20
   n_retries:      10
 
 # ── Plant ─────────────────────────────────────────────────────────────────────
@@ -103,17 +58,11 @@ bounds:
 # ── Acquisition function ──────────────────────────────────────────────────────
 acquisition:
   type: qUCB
-  beta: 3.0
+  beta: 2.0
   beta_schedule: fixed
 
 # ── Constraint enforcement strategy ──────────────────────────────────────────
-constraint_mode: surrogate_mean   # Options: surrogate_mean | ucb_constraint | probabilistic
-
-# ── Comparison targets ────────────────────────────────────────────────────────
-# For analysis scripts: compare this scenario against S1 (no constraint) and
-# S5 (all-metrics relative) to measure the marginal cost of adding one
-# aligned constraint.
-compare_with_scenarios: [S1, S5]
+constraint_mode: surrogate_mean
 
 # ── Metrics to record ────────────────────────────────────────────────────────
 logging:
@@ -123,5 +72,4 @@ logging:
     - convergence_iteration
     - preference_alignment_rate
     - feasibility_rate
-    - constraint_extraction_accuracy   # Was tracking_mse correctly extracted as the target?
   output_dir: experiments/results/s1b_monotone_constrained

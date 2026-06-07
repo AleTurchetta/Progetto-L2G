@@ -4,18 +4,11 @@
 # Persona: The ever-demanding human.
 # Every iteration the oracle says: "I prefer this one AND the next candidate
 # must be strictly better than A in all three metrics."
-# Constraints are directional_improvement relative to candidate A:
-#   - overshoot_pct   <= A_overshoot  (margin = 0.0)
-#   - settling_time   <= A_settling   (margin = 0.0)
-#   - tracking_mse    <= A_mse        (margin = 0.0)
 # As the baseline A improves, the constraints automatically tighten —
 # creating a moving, shrinking feasible region.
 # Purpose: Tests multi-constraint feasibility with a shrinking target.
-#          Also tests whether _calculate_threshold correctly resolves relative
-#          constraints using cand_ref["A"] from the surrogate.
 # Expected outcome: High feasibility_rate early (easy to beat a bad baseline),
 #                   decreasing feasibility_rate in later iterations as A improves.
-#                   Convergence should still occur due to strict monotone improvement.
 # =============================================================================
 
 scenario_id: S5
@@ -39,7 +32,6 @@ utility:
   w_mse:       1.0
 
 # ── Hard thresholds ───────────────────────────────────────────────────────────
-# No absolute thresholds. All constraints are relative to candidate A.
 thresholds:
   max_overshoot: null
   max_settling:  null
@@ -47,9 +39,9 @@ thresholds:
 
 # ── Relative constraint parameters ────────────────────────────────────────────
 relative_constraints:
-  reference_candidate: A    # Always compare against current best
-  margin: 0.0               # Zero tolerance — must strictly improve
-  metrics:                  # Which metrics are constrained
+  reference_candidate: A
+  margin: 0.0
+  metrics:
     - overshoot_pct
     - settling_time
     - tracking_mse
@@ -61,7 +53,7 @@ experiment:
   n_iterations:   10
   n_seeds:        5
   seeds:          [42, 7, 13, 99, 2025]
-  warm_start_n:   200
+  warm_start_n:   20
   n_retries:      10
 
 # ── Plant ─────────────────────────────────────────────────────────────────────
@@ -77,16 +69,11 @@ bounds:
 # ── Acquisition function ──────────────────────────────────────────────────────
 acquisition:
   type: qUCB
-  beta: 3.0
+  beta: 2.0
   beta_schedule: fixed
 
 # ── Constraint enforcement strategy ──────────────────────────────────────────
 constraint_mode: surrogate_mean
-
-# ── Relative-constraint diagnostics ──────────────────────────────────────────
-diagnostics:
-  record_feasible_region_volume: true   # Estimate feasible fraction of Sobol grid each iter
-  record_baseline_metrics_per_iter: true # Log A's metrics at each iteration
 
 # ── Metrics to record ────────────────────────────────────────────────────────
 logging:
@@ -97,5 +84,5 @@ logging:
     - preference_alignment_rate
     - feasibility_rate
     - avg_retries_per_iteration
-    - feasible_region_volume          # Extra: tracks shrinkage of feasible region
+    - feasible_region_volume
   output_dir: experiments/results/s5_drastic_relative

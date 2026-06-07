@@ -42,9 +42,15 @@ from botorch.acquisition.objective import LinearMCObjective
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'analysis'))
+
 import control_utils as cu
 from L2Gengine import L2GEngine
 from oracle import Oracle, OraclePersona, compute_ground_truth_optimum
+
+# Analysis plotting functions (panel-level, invoked from plot_results_*)
+from plot_regret import plot_regret as _plot_regret_panel
+from plot_heatmap import plot_heatmap_panel as _plot_heatmap_panel
 
 warnings.filterwarnings("ignore")
 plt.style.use("seaborn-v0_8-darkgrid")
@@ -188,7 +194,7 @@ def warm_start(plant, bounds, n_samples: int, t_final: float = 40.0):
     valid_indices = []
 
     for i in range(n_samples):
-        if i % 50 == 0:
+        if i % 10 == 0:
             print(f"  {i}/{n_samples}...", end="\r")
         t, y, m = evaluate_candidate(raw_x[i].unsqueeze(0), plant, t_final)
         for k in obs_metrics:
@@ -261,6 +267,37 @@ def check_real_constraints(candidate_metrics: dict, specs: list, ref_metrics_dic
             if spec.operator == ">=" and val < limit:
                 return False, f"{spec.subfunction_id} ({val:.2f}) < limit {limit:.2f}"
     return True, "OK"
+
+
+def _deduplicate_constraint_specs(l2g) -> None:
+    """
+    Remove duplicate constraint specs from the L2G engine's constraint list.
+
+    Constrained oracles (DRASTIC_ABSOLUTE, DRASTIC_RELATIVE, CONTRADICTORY)
+    re-emit the same constraint every iteration.  Without deduplication, the
+    list grows to length n_iters, causing identical nonlinear constraints to be
+    applied repeatedly — this is both redundant (no new information) and
+    expensive (the optimiser must satisfy 10+ copies of the same bound).
+
+    Deduplication is keyed on (subfunction_id, constraint_type, threshold,
+    operator) so that semantically distinct constraints from different
+    iterations are still preserved.
+    """
+    if not l2g.constraint_specs:
+        return
+    seen: set = set()
+    unique: list = []
+    for spec in l2g.constraint_specs:
+        key = (
+            spec.subfunction_id,
+            spec.constraint_type,
+            round(spec.threshold or 0.0, 8),
+            spec.operator,
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(spec)
+    l2g.constraint_specs = unique
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -338,7 +375,12 @@ def run_loop(cfg: dict, oracle: Oracle, plant, bounds, U_star: float,
                 PairwiseLaplaceMarginalLogLikelihood(pref_model.likelihood, pref_model)
             )
 
-        # 4. Build language constraints from L2G state
+        # 4. Deduplicate constraint specs before building constraints.
+        #    Constrained oracles re-emit the same constraint each iteration;
+        #    accumulation (without dedup) shrinks the feasible set to near-zero
+        #    even though the constraint itself hasn't changed.
+        _deduplicate_constraint_specs(l2g)
+
         cand_ref = {"A": train_x[best_idx]}
         if last_shown_x is not None:
             cand_ref["B"] = last_shown_x.squeeze(0)
@@ -402,6 +444,8 @@ def run_loop(cfg: dict, oracle: Oracle, plant, bounds, U_star: float,
                 mean_val = train_y[k].mean()
                 l2g_surrogates[k] = create_surrogate_wrapper(gp, mean_val, std_val)
             l2g.sub_surrogates = l2g_surrogates
+            # Re-deduplicate after active-learning refit (new specs may have been added)
+            _deduplicate_constraint_specs(l2g)
             constraints_funcs = l2g.build_nonlinear_inequality_constraints(candidates_reference=cand_ref)
 
         if not found_valid:
@@ -472,15 +516,18 @@ def run_loop(cfg: dict, oracle: Oracle, plant, bounds, U_star: float,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_results_single(
-    regrets, best_traj_x, grid_data, cfg: dict, acqf_type: str, seed: int
+    regrets, best_traj_x, grid_data: dict, cfg: dict,
+    acqf_type: str, seed: int, U_star: float,
 ):
     """
-    Two-panel figure:
-      Left  — simple regret per iteration
-      Right — oracle utility heatmap with optimisation trajectory overlaid
+    Two-panel figure assembled from analysis-folder panel functions:
+      Left  — simple regret per iteration  (plot_regret.plot_regret)
+      Right — oracle utility heatmap + trajectory  (plot_heatmap.plot_heatmap_panel)
+
+    Saves to cfg["logging"]["output_dir"] and closes the figure without
+    blocking the terminal (plt.show() is intentionally omitted).
     """
     persona_name = cfg["persona"]
-    n_iters      = len(regrets)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle(
@@ -488,44 +535,23 @@ def plot_results_single(
         fontsize=13,
     )
 
-    # ── Simple regret ────────────────────────────────────────────────────────
-    ax1.plot(range(1, n_iters + 1), regrets, "b-o", linewidth=2, markersize=6)
-    ax1.axhline(0, color="gray", linestyle="--", linewidth=1, alpha=0.6)
-    ax1.set_xlabel("Iteration")
-    ax1.set_ylabel("Simple Regret  (U* − U_best)")
-    ax1.set_title("Simple Regret")
-    ax1.set_xlim(0.5, n_iters + 0.5)
-
-    # ── Utility heatmap ───────────────────────────────────────────────────────
-    kp_unique = np.unique(grid_data["Kp"])
-    ki_unique = np.unique(grid_data["Ki"])
-    U_2d = grid_data["utility"].reshape(len(kp_unique), len(ki_unique))
-
-    cf = ax2.contourf(kp_unique, ki_unique, U_2d.T, levels=50, cmap="viridis")
-    plt.colorbar(cf, ax=ax2, label="Oracle Utility")
-
-    # Trajectory
-    if best_traj_x:
-        traj = np.array(best_traj_x)
-        ax2.plot(traj[:, 0], traj[:, 1], "w-o", markersize=5, linewidth=1.5,
-                 label="Best trajectory", zorder=4)
-        ax2.scatter(traj[0, 0], traj[0, 1], c="cyan", s=80, zorder=5,
-                    label="Start", edgecolors="k", linewidths=0.5)
-        ax2.scatter(traj[-1, 0], traj[-1, 1], c="red", s=100, zorder=5,
-                    label="Final best", edgecolors="k", linewidths=0.5)
-
-    # Ground-truth optimum
-    best_gt_idx = int(np.argmax(grid_data["utility"]))
-    ax2.scatter(
-        grid_data["Kp"][best_gt_idx], grid_data["Ki"][best_gt_idx],
-        marker="*", c="yellow", s=220, zorder=6, label="U* (ground truth)",
-        edgecolors="k", linewidths=0.5,
+    # Left panel — regret curve with convergence annotation
+    _plot_regret_panel(
+        np.array(regrets),
+        u_star=U_star,
+        title="Simple Regret",
+        ax=ax1,
+        annotate_convergence=True,
     )
 
-    ax2.set_xlabel("Kp")
-    ax2.set_ylabel("Ki")
-    ax2.set_title("Utility Landscape + Trajectory")
-    ax2.legend(fontsize=8, loc="upper right")
+    # Right panel — utility heatmap with best-so-far trajectory
+    _plot_heatmap_panel(
+        grid_data,
+        best_traj_x,
+        title="Utility Landscape + Trajectory",
+        seed_label=f"seed {seed}",
+        ax=ax2,
+    )
 
     plt.tight_layout()
 
@@ -534,7 +560,7 @@ def plot_results_single(
     fname = out_dir / f"single_seed{seed}_{acqf_type}.png"
     plt.savefig(fname, dpi=150, bbox_inches="tight")
     print(f"Plot saved → {fname}")
-    plt.show()
+    plt.close("all")   # avoids blocking the terminal (no plt.show())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -554,7 +580,7 @@ def main():
     # Ground-truth optimum (noise-free utility, dense grid)
     print("Computing ground truth optimum (this may take ~30–90 s) ...")
     oracle_gt = build_oracle(cfg, seed=seed, verbose=False)
-    oracle_gt.noise_level = 0.0   # utility() is already deterministic; belt-and-suspenders
+    oracle_gt.noise_level = 0.0
     best_params, U_star, grid_data = compute_ground_truth_optimum(
         plant, bounds.numpy(), oracle_gt, n_grid=30
     )
@@ -566,7 +592,7 @@ def main():
     )
 
     # Plot
-    plot_results_single(regrets, best_traj_x, grid_data, cfg, ACQF_TYPE, seed)
+    plot_results_single(regrets, best_traj_x, grid_data, cfg, ACQF_TYPE, seed, U_star)
 
     # Final summary
     print("\n=== DONE ===")

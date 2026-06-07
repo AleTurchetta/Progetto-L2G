@@ -31,16 +31,12 @@ oracle:
   verbose: true
 
 # ── Hidden utility weights ────────────────────────────────────────────────────
-# (Used only for the oracle's internal U(A)/U(B) printout — not for preference)
 utility:
   w_overshoot: 1.0
   w_settling:  1.0
   w_mse:       1.0
 
 # ── Hard thresholds ───────────────────────────────────────────────────────────
-# The contradiction is computed dynamically in _handle_contradictory():
-#   tight_threshold = max(0.1, B_overshoot * 0.7)
-# The value below is the profile's baseline — the dynamic override takes precedence.
 thresholds:
   max_overshoot: 3.0        # Profile baseline; runtime value is 0.7 * B_actual
   max_settling:  null
@@ -48,8 +44,8 @@ thresholds:
 
 # ── Contradiction parameters ──────────────────────────────────────────────────
 contradiction:
-  overshoot_tightening_factor: 0.7   # Threshold = B_actual * this factor
-  forced_winner: B                   # Always forces preference to B
+  overshoot_tightening_factor: 0.7
+  forced_winner: B
   constraint_confidence: 0.9
 
 # ── Experiment execution ──────────────────────────────────────────────────────
@@ -57,8 +53,8 @@ experiment:
   n_iterations:   10
   n_seeds:        5
   seeds:          [42, 7, 13, 99, 2025]
-  warm_start_n:   200
-  n_retries:      10        # Critical: tests how many retries get burned
+  warm_start_n:   20
+  n_retries:      10
 
 # ── Plant ─────────────────────────────────────────────────────────────────────
 plant:
@@ -73,7 +69,7 @@ bounds:
 # ── Acquisition function ──────────────────────────────────────────────────────
 acquisition:
   type: qUCB
-  beta: 3.0
+  beta: 2.0
   beta_schedule: fixed
 
 # ── Constraint enforcement strategy ──────────────────────────────────────────
@@ -82,8 +78,8 @@ constraint_mode: surrogate_mean
 # ── Failure mode analysis ─────────────────────────────────────────────────────
 failure_analysis:
   record_retry_count_per_iter: true
-  record_fallback_used: true         # True when all retries exhausted
-  flag_infeasible_constraints: true  # Log when no feasible region exists in surrogate
+  record_fallback_used: true
+  flag_infeasible_constraints: true
 
 # ── Metrics to record ────────────────────────────────────────────────────────
 logging:
@@ -93,6 +89,6 @@ logging:
     - convergence_iteration
     - preference_alignment_rate
     - feasibility_rate
-    - avg_retries_per_iteration       # Extra: measure retry cost
-    - n_fallback_iterations           # Extra: how often max_retries exhausted
+    - avg_retries_per_iteration
+    - n_fallback_iterations
   output_dir: experiments/results/s3_contradictory

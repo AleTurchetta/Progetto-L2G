@@ -34,6 +34,13 @@ from botorch.acquisition import (
     qUpperConfidenceBound,
     qLogExpectedImprovement,
 )
+
+from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
+try:
+    from botorch.sampling.normal import SobolQMCNormalSampler
+except Exception:
+    from botorch.sampling import SobolQMCNormalSampler
+
 from botorch.optim import optimize_acqf
 from botorch.utils.sampling import draw_sobol_samples
 from botorch.optim.initializers import gen_batch_initial_conditions
@@ -241,8 +248,22 @@ def build_acqf(acqf_type: str, pref_model, mse_model, acqf_beta: float):
             return qExpectedImprovement(model=mse_model, best_f=-best_f, objective=negate)
         return qLogExpectedImprovement(model=mse_model, best_f=-best_f, objective=negate)
 
-    raise ValueError(f"Unknown ACQF_TYPE '{acqf_type}'. Choose: qUCB | qEI | qLogEI | qSR")
+    if acqf_type == "qEUBO":
+        if pref_model is None:                      
+            best_f = mse_model.train_targets.min()
+            negate = LinearMCObjective(weights=torch.tensor([-1.0], dtype=torch.double))
+            return qLogExpectedImprovement(model=mse_model, best_f=-best_f, objective=negate)
+        with torch.no_grad():
+            mean = pref_model.posterior(pref_model.datapoints).mean.reshape(-1)
+        winner = pref_model.datapoints[int(torch.argmax(mean))].detach()
+        return AnalyticExpectedUtilityOfBestOption(pref_model=pref_model, previous_winner=winner)
 
+    if acqf_type == "qTS":
+        model = pref_model if pref_model is not None else mse_model
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([1]))
+        return qSimpleRegret(model, sampler=sampler)
+
+    raise ValueError(f"Unknown ACQF_TYPE '{acqf_type}'. Choose: qUCB | qEI | qLogEI | qSR")
 
 def check_real_constraints(candidate_metrics: dict, specs: list, ref_metrics_dict: dict):
     """Verify real simulated metrics satisfy the L2G constraint specs."""

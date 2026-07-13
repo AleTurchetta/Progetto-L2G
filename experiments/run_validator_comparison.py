@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'analysis'))
 from base_oracle import (
     Persona,
     TargetSeekingUtility,
+    MonotoneConstrainedOracle,
     make_oracle,
     generate_random_target,
     compute_ground_truth_optimum,
@@ -45,7 +46,7 @@ from dynamic_oracle import GenuineLateSwitcherOracle, generate_distinct_target
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 ARMS      = ["pbo", "l2g", "validated"]
-PERSONAS  = ["CONSISTENT_BASE", "NOISY", "LATE_SWITCHER"]
+PERSONAS  = ["CONSISTENT_BASE", "MONOTONE_CONSTRAINED", "NOISY", "LATE_SWITCHER"]
 
 ACQF_TYPE = "qEUBO"
 ACQF_BETA = 2.0
@@ -132,6 +133,8 @@ def build_utilities_and_gt(plant, bounds_np):
 def make_persona_oracle(label: str, u1, u2, seed: int):
     if label == "CONSISTENT_BASE":
         return make_oracle(Persona.CONSISTENT_BASE, u1, seed=seed, verbose=False)
+    if label == "MONOTONE_CONSTRAINED":
+        return MonotoneConstrainedOracle(u1, seed=seed, verbose=False)
     if label == "NOISY":
         return make_oracle(Persona.NOISY, u1, seed=seed, verbose=False,
                            noise_level=NOISE_LEVEL)

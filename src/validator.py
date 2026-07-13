@@ -3,9 +3,6 @@ validator.py
 ============
 Preference VALIDATOR for preference-based BO under unreliable human feedback.
 
-Paradigm shift vs robust_pref.py: NO preference is ever deleted.  Every
-expressed comparison stays in the dataset forever.  Instead, the validator
-
   (1) AUDITS the preference history each iteration: after the PairwiseGP is
       fit, each comparison gets an agreement probability
           p = Phi( (mu_win - mu_lose) / sqrt(var_win + var_lose - 2 cov) )
@@ -72,6 +69,7 @@ class ComparisonRecord:
     n_retests: int = 0
     retest_of: Optional[int] = None  # rec_id of the record this corrects
     last_p: Optional[float] = None   # last audit agreement probability
+    last_trigger: Optional[str] = None  # "flag" | "spot" — why the duel fired
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,6 +98,16 @@ class PreferenceValidator:
     tau_flag : float
         Flag a comparison when the model's agreement probability drops below
         this value (0.25 = "the rest of the data says 3:1 this is wrong").
+        NOTE: because contradictions inflate the Laplace posterior variance,
+        agreement drifts toward 0.5 rather than 0 — values around 0.35-0.40
+        are far more reachable in practice than 0.25.
+    tau_spot / spotcheck_every : float, int
+        Proactive SPOT-CHECK: every `spotcheck_every` iterations (0 = off),
+        if no hard-flagged record is duel-eligible, retest the never-retested
+        record with the lowest agreement — but only if that agreement is
+        below `tau_spot`.  The gate keeps a consistent human duel-free (all
+        p well above tau_spot) while spending idle retest budget on the
+        borderline records a noisy human produces.
     min_iter : int
         No validation duels before this iteration (the GP needs data first).
     retest_delay : int
@@ -122,6 +130,9 @@ class PreferenceValidator:
     def __init__(
         self,
         tau_flag: float = 0.25,
+        tau_spot: float = 0.45,
+        spotcheck_every: int = 0,
+        loo_top_k: int = 3,
         min_iter: int = 5,
         retest_delay: int = 1,
         max_retests_total: int = 5,
@@ -130,10 +141,16 @@ class PreferenceValidator:
         correction_weight: int = 2,
         changepoint_confirmations: int = 2,
         changepoint_window: int = 5,
+        changepoint_recency: Optional[int] = None,
+        changepoint_min_expressed: int = 0,
         post_change_weight: int = 2,
+        confirm_streak_limit: int = 3,
         verbose: bool = False,
     ):
         self.tau_flag = tau_flag
+        self.tau_spot = tau_spot
+        self.spotcheck_every = spotcheck_every
+        self.loo_top_k = loo_top_k
         self.min_iter = min_iter
         self.retest_delay = retest_delay
         self.max_retests_total = max_retests_total
@@ -142,8 +159,26 @@ class PreferenceValidator:
         self.correction_weight = correction_weight
         self.changepoint_confirmations = changepoint_confirmations
         self.changepoint_window = changepoint_window
+        # A confirmation is CHANGE-POINT EVIDENCE only if the record was
+        # expressed recently (a genuine switch flags fresh labels against the
+        # old majority; confirmations of stale records just mean the GP
+        # misfits an honest label — see the consistent-persona probe).
+        self.changepoint_recency = (changepoint_window if changepoint_recency
+                                    is None else changepoint_recency)
+        # No change-point evidence from records expressed this early: with a
+        # data-poor GP the leave-one-out audit is trigger-happy, and early
+        # honest flags otherwise cluster into a spurious change-point.
+        self.changepoint_min_expressed = changepoint_min_expressed
         self.post_change_weight = post_change_weight
+        # DO-NO-HARM brake: consecutive confirmations mean the human keeps
+        # insisting and the model is what's wrong — stop spending iterations
+        # on duels.  An overrule (a real mistake found) resets the streak.
+        # Must be >= changepoint_confirmations or a genuine switch could be
+        # silenced one duel short of its change-point.
+        self.confirm_streak_limit = max(confirm_streak_limit,
+                                        changepoint_confirmations)
         self.verbose = verbose
+        self._confirm_streak = 0
 
         self.records: List[ComparisonRecord] = []
         self.changepoint_iter: Optional[int] = None
@@ -171,11 +206,15 @@ class PreferenceValidator:
 
     # -- export for PairwiseGP fitting ----------------------------------------
 
-    def dataset(self) -> List[Tuple[Any, Any]]:
+    def dataset(self, exclude_rec_id: Optional[int] = None
+                ) -> List[Tuple[Any, Any]]:
         """(x_win, x_lose) pairs, replicated by effective weight. Never empty
-        because of deletion — only reweighted."""
+        because of deletion — only reweighted.  `exclude_rec_id` omits one
+        record (used by the leave-one-out audit)."""
         out: List[Tuple[Any, Any]] = []
         for r in self.records:
+            if exclude_rec_id is not None and r.rec_id == exclude_rec_id:
+                continue
             w = r.weight
             if self.changepoint_iter is not None:
                 if r.iter_added >= self.changepoint_iter:
@@ -199,45 +238,101 @@ class PreferenceValidator:
             float(cov[0, 0]), float(cov[1, 1]), float(cov[0, 1]),
         )
 
-    def audit(self, pref_model, iteration: int) -> Optional[ComparisonRecord]:
+    def audit(self, pref_model, iteration: int,
+              refit_fn=None) -> Optional[ComparisonRecord]:
         """
         Score every auditable record, update pending flags, and return the
         record whose validation duel should happen THIS iteration (or None).
+
+        refit_fn : callable (pairs -> fitted PairwiseGP), optional
+            Enables the LEAVE-ONE-OUT audit.  In-sample agreement is useless
+            as an absolute signal: the GP partially fits the record being
+            audited and contradictions inflate the Laplace variance, so
+            corrupted labels score ~0.47 vs ~0.50 for honest ones — no
+            threshold separates them.  With refit_fn, the `loo_top_k` most
+            suspicious records (by in-sample ranking, which IS reliable) are
+            re-scored against a GP fitted WITHOUT them; a corrupted label is
+            then actively contradicted by the remaining data (p << tau_flag)
+            while honest labels stay near 0.5.  Flags use the LOO score.
         """
         if pref_model is None:
             return None
 
-        flagged: List[ComparisonRecord] = []
+        scored: List[ComparisonRecord] = []
         for r in self.records:
-            if r.status not in (UNVERIFIED, PENDING):
-                continue
-            if r.retest_of is not None:                 # never audit corrections
+            # OVERRULED records are settled (kept in the dataset, outvoted by
+            # their correction).  Everything else — including CONFIRMED
+            # records and corrections — stays auditable: a retest under a
+            # noisy oracle is itself wrong with prob = noise_level, so a
+            # corrupted resolution must be able to self-heal on re-audit.
+            if r.status == OVERRULED:
                 continue
             if r.n_retests >= self.max_retests_per_pair:
                 continue
-            p = self._agreement(pref_model, r)
-            r.last_p = p
-            if p < self.tau_flag:
+            r.last_p = self._agreement(pref_model, r)
+            scored.append(r)
+
+        # Leave-one-out rescoring of the most suspicious few (+ any pending).
+        if refit_fn is not None and scored:
+            suspects = sorted(scored, key=lambda r: r.last_p)[: self.loo_top_k]
+            suspects = list({id(r): r for r in suspects + [
+                r for r in scored if r.status == PENDING]}.values())
+            for r in suspects:
+                loo_pairs = self.dataset(exclude_rec_id=r.rec_id)
+                if not loo_pairs:
+                    continue
+                try:
+                    loo_model = refit_fn(loo_pairs)
+                except Exception:
+                    continue                            # keep in-sample score
+                if loo_model is not None:
+                    r.last_p = self._agreement(loo_model, r)
+
+        flagged: List[ComparisonRecord] = []
+        for r in scored:
+            if r.last_p < self.tau_flag:
                 if r.status != PENDING and self.verbose:
                     print(f"  [validator] flag rec#{r.rec_id} (it={r.iter_added}) "
-                          f"p={p:.3f} < tau={self.tau_flag}")
+                          f"p={r.last_p:.3f} < tau={self.tau_flag}")
                 r.status = PENDING
                 flagged.append(r)
             elif r.status == PENDING:
                 r.status = UNVERIFIED                   # model no longer objects
                 if self.verbose:
-                    print(f"  [validator] unflag rec#{r.rec_id} (p={p:.3f})")
+                    print(f"  [validator] unflag rec#{r.rec_id} (p={r.last_p:.3f})")
 
         if iteration < self.min_iter:
             return None
         if self.n_retests_done >= self.max_retests_total:
             return None
+        if self._confirm_streak >= self.confirm_streak_limit:
+            return None                    # human keeps insisting; stand down
 
         eligible = [r for r in flagged
                     if (iteration - r.iter_added) >= self.retest_delay]
-        if not eligible:
-            return None
-        return min(eligible, key=lambda r: r.last_p)
+        if eligible:
+            rec = min(eligible, key=lambda r: r.last_p)
+            rec.last_trigger = "flag"
+            return rec
+
+        # Proactive spot-check: no hard flag, but at the checkpoint cadence
+        # retest the most suspicious never-retested record — only if its
+        # agreement is genuinely borderline (< tau_spot), so a consistent
+        # human never pays a duel iteration.
+        if self.spotcheck_every and iteration % self.spotcheck_every == 0:
+            cands = [r for r in scored
+                     if r.n_retests == 0
+                     and r.last_p is not None and r.last_p < self.tau_spot
+                     and (iteration - r.iter_added) >= self.retest_delay]
+            if cands:
+                rec = min(cands, key=lambda r: r.last_p)
+                rec.last_trigger = "spot"
+                if self.verbose:
+                    print(f"  [validator] spot-check rec#{rec.rec_id} "
+                          f"(it={rec.iter_added}) p={rec.last_p:.3f} < "
+                          f"tau_spot={self.tau_spot}")
+                return rec
+        return None
 
     # -- resolution ------------------------------------------------------------
 
@@ -253,23 +348,30 @@ class PreferenceValidator:
         if confirmed:
             rec.status = CONFIRMED
             rec.weight = max(rec.weight, self.confirm_weight)
-            self.confirmed_events.append(rec.iter_added)
-            self._maybe_declare_changepoint()
+            self._confirm_streak += 1
+            if ((iteration - rec.iter_added) <= self.changepoint_recency
+                    and rec.iter_added >= self.changepoint_min_expressed):
+                self.confirmed_events.append(rec.iter_added)
+                self._maybe_declare_changepoint()
             self.event_log.append({"iteration": iteration, "event": "confirmed",
                                    "rec_id": rec.rec_id,
+                                   "trigger": rec.last_trigger,
                                    "changepoint": self.changepoint_iter})
             if self.verbose:
                 print(f"  [validator] rec#{rec.rec_id} CONFIRMED "
                       f"(weight->{rec.weight}, changepoint={self.changepoint_iter})")
             return None
 
-        rec.status = OVERRULED                          # kept at its weight
+        rec.status = OVERRULED
+        rec.weight = 1          # a discredited label loses any elevated weight
+        self._confirm_streak = 0
         corr = self.add_comparison(
             rec.x_lose, rec.x_win, rec.m_lose, rec.m_win,
             iteration, weight=self.correction_weight, retest_of=rec.rec_id,
         )
         self.event_log.append({"iteration": iteration, "event": "overruled",
-                               "rec_id": rec.rec_id, "correction_id": corr.rec_id})
+                               "rec_id": rec.rec_id, "correction_id": corr.rec_id,
+                               "trigger": rec.last_trigger})
         if self.verbose:
             print(f"  [validator] rec#{rec.rec_id} OVERRULED "
                   f"(kept w={rec.weight}; correction rec#{corr.rec_id} w={corr.weight})")

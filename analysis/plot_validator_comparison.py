@@ -1,14 +1,19 @@
 """
 plot_validator_comparison.py
 ============================
-Figures for the validator study: one panel per PERSONA, three curves per
-panel (PBO / PBO+L2G / PBO+L2G+Validator), mean over seeds with an
-inter-quartile band.  For the genuine late switcher a vertical dashed line
-marks the utility switch (regret is dynamic — the spike at the switch is
-expected; the story is the recovery slope after it).
+Presentation-quality figures for the validator study: one panel per PERSONA,
+three curves per panel (PBO / PBO+L2G / PBO+L2G+Validator), mean over seeds.
+
+Every figure is exported twice: mean-only, and with an interquartile band
+across seeds (`_band` suffix).  With four personas the combined figure is a
+2x2 grid (slide-friendly); otherwise a 1xN row.
+
+Palette (validated for colour-vision deficiency and 3:1 contrast on white;
+identity is additionally carried by linestyle + marker, never colour alone):
+    baseline gray #6e6e6e / L2G red #e34948 / Validator blue #2a78d6.
 
 Usable two ways:
-    • called by run_validator_comparison.main() with results in memory;
+    • called by an experiment driver with results in memory;
     • standalone:  python plot_validator_comparison.py <results_dir>
       (re-plots from the saved regret_{persona}_{arm}.npy files).
 """
@@ -18,105 +23,158 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MaxNLocator, MultipleLocator
 
-plt.style.use("seaborn-v0_8-darkgrid")
+# ── style ─────────────────────────────────────────────────────────────────────
 
+plt.rcParams.update({
+    "figure.facecolor":  "white",
+    "axes.facecolor":    "white",
+    "axes.edgecolor":    "#b0b0b0",
+    "axes.linewidth":    0.8,
+    "axes.grid":         True,
+    "grid.color":        "#e4e4e4",
+    "grid.linewidth":    0.7,
+    "axes.axisbelow":    True,
+    "font.family":       "sans-serif",
+    "axes.titlesize":    13,
+    "axes.labelsize":    11,
+    "xtick.labelsize":   10,
+    "ytick.labelsize":   10,
+    "legend.fontsize":   10,
+    "xtick.color":       "#444444",
+    "ytick.color":       "#444444",
+    "axes.labelcolor":   "#222222",
+    "text.color":        "#222222",
+})
+
+ARM_ORDER = ("pbo", "l2g", "validated")
 ARM_LABELS = {
-    "pbo":       "Standard PBO (preference only)",
+    "pbo":       "Standard PBO",
     "l2g":       "PBO + L2G",
     "validated": "PBO + L2G + Validator",
 }
+# Baseline recessive; hero series (validator) solid and heaviest.
 ARM_STYLES = {
-    "pbo":       dict(color="#666666", ls=":",  lw=2.0, marker="o", ms=4),
-    "l2g":       dict(color="#c23b22", ls="--", lw=2.0, marker="s", ms=4),
-    "validated": dict(color="#1a6faf", ls="-",  lw=2.6, marker="D", ms=4),
+    "pbo":       dict(color="#6e6e6e", ls=":",  lw=1.8, marker="o", ms=4.5),
+    "l2g":       dict(color="#e34948", ls="--", lw=2.0, marker="s", ms=4.0),
+    "validated": dict(color="#2a78d6", ls="-",  lw=2.4, marker="D", ms=4.0),
 }
 PERSONA_TITLES = {
-    "CONSISTENT_BASE": "Consistent human",
-    "NOISY":           "Noisy human (20% flips)",
-    "LATE_SWITCHER":   "Late switcher (genuine change of mind)",
+    "CONSISTENT_BASE":      "Consistent Human",
+    "MONOTONE_CONSTRAINED": "Consistent Human, Constrained Feedback",
+    "NOISY":                "Noisy Human",
+    "LATE_SWITCHER":        "Late-Switching Human",
 }
+PERSONA_DESCRIPTIONS = {
+    "CONSISTENT_BASE":      "Reliable preferences and constraints",
+    "MONOTONE_CONSTRAINED": "Reliable preferences with a relative constraint",
+    "NOISY":                "20% of preference labels flipped at random",
+    "LATE_SWITCHER":        "Hidden objective changes mid-run",
+}
+
+YLABEL = r"Simple regret $SR_t$"
+XLABEL = "Iteration"
 
 
 def plot_persona_panel(
     ax,
     arm_curves: Dict[str, np.ndarray],
-    title: str,
+    persona: str,
     switch_iter: Optional[int] = None,
-    band: str = "iqr",
+    band: str = "none",
+    show_xlabel: bool = True,
+    show_ylabel: bool = True,
+    legend: bool = True,
 ) -> None:
-    """arm_curves: {arm: array [n_seeds, n_iters]}."""
-    for arm in ("pbo", "l2g", "validated"):
+    """arm_curves: {arm: array [n_seeds, n_iters]}.  band: "none" | "iqr"."""
+    y_min, y_max, n_it = 0.0, 0.0, 1
+    for k, arm in enumerate(ARM_ORDER):
         if arm not in arm_curves:
             continue
         arr = np.asarray(arm_curves[arm], dtype=float)
+        n_it = max(n_it, arr.shape[1])
         it = np.arange(1, arr.shape[1] + 1)
         mean = arr.mean(axis=0)
+        st = ARM_STYLES[arm]
+        ax.plot(it, mean, label=ARM_LABELS[arm],
+                markevery=(k, 3), zorder=3 + k, **st)
+        y_min, y_max = min(y_min, mean.min()), max(y_max, mean.max())
         if band == "iqr":
             lo, hi = np.percentile(arr, [25, 75], axis=0)
-        else:
-            lo, hi = arr.min(axis=0), arr.max(axis=0)
-        st = ARM_STYLES[arm]
-        ax.plot(it, mean, label=f"{ARM_LABELS[arm]} (n={arr.shape[0]})", **st)
-        ax.fill_between(it, lo, hi, color=st["color"], alpha=0.15, lw=0)
+            ax.fill_between(it, lo, hi, color=st["color"], alpha=0.13,
+                            lw=0, zorder=2)
+            y_min, y_max = min(y_min, lo.min()), max(y_max, hi.max())
+
+    # zero-regret reference (the optimum)
+    ax.axhline(0.0, color="#999999", ls="-", lw=0.8, zorder=1)
+
+    pad = 0.05 * (y_max - y_min or 1.0)
+    ax.set_ylim(y_min - pad, y_max + 3.2 * pad)   # headroom for the legend
+    ax.set_xlim(1, n_it)
+    ax.xaxis.set_major_locator(MultipleLocator(5))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]))
 
     if switch_iter is not None:
-        ax.axvline(switch_iter, color="black", ls=":", lw=1.2)
-        ax.text(switch_iter, ax.get_ylim()[1] * 0.97, " utility switch",
-                fontsize=9, va="top", ha="left", color="black")
+        ax.axvline(switch_iter, color="#444444", ls=(0, (4, 3)), lw=1.1, zorder=2)
+        ax.text(switch_iter + 0.4, ax.get_ylim()[1] * 0.965, "objective change",
+                fontsize=8.5, va="top", ha="left", color="#444444")
 
-    ax.axhline(0.0, color="green", ls="--", lw=0.8, alpha=0.6)
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel(r"Simple regret  $SR_t = U^*_{\mathrm{active}}(t) - U_{\mathrm{active}(t)}(x_t^{best})$")
-    ax.set_title(title, fontweight="bold")
-    ax.legend(fontsize=9)
+    ax.set_title(PERSONA_TITLES.get(persona, persona), fontweight="bold", pad=20)
+    desc = PERSONA_DESCRIPTIONS.get(persona)
+    if desc:
+        ax.text(0.5, 1.012, desc, transform=ax.transAxes,
+                ha="center", va="bottom", fontsize=9, color="#666666")
+    if show_xlabel:
+        ax.set_xlabel(XLABEL)
+    if show_ylabel:
+        ax.set_ylabel(YLABEL)
+    if legend:
+        ax.legend(loc="upper right", frameon=False, borderaxespad=0.4)
+    ax.grid(axis="x", visible=False)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+
+
+def _fig_subtitle(meta: dict, band: str) -> str:
+    parts = [f"Mean simple regret across {meta.get('n_seeds', '?')} seeds",
+             f"{meta.get('acqf', 'qEUBO')} acquisition"]
+    if band == "iqr":
+        parts.append("shaded band: interquartile range")
+    return "  ·  ".join(parts)
 
 
 def plot_all(
     results: Dict[str, Dict[str, np.ndarray]],
     out_dir: Path,
     meta: Optional[dict] = None,
+    bands: Tuple[str, ...] = ("none", "iqr"),
 ) -> List[Path]:
-    """One figure per persona + one combined 1x3 grid.  Returns saved paths."""
+    """One standalone figure per persona (no combined grid — the four images
+    stay separate for slide-level flexibility), exported once per entry in
+    `bands` ("iqr" files get a `_band` suffix).  Returns saved paths."""
     meta = meta or {}
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    acqf = meta.get("acqf", "qEUBO")
     saved: List[Path] = []
 
-    for persona, arm_curves in results.items():
-        fig, ax = plt.subplots(figsize=(8, 5.5))
-        sw = meta.get("switch_iter") if persona == "LATE_SWITCHER" else None
-        plot_persona_panel(ax, arm_curves,
-                           PERSONA_TITLES.get(persona, persona), switch_iter=sw)
-        fig.suptitle(f"Validator study — {acqf}", fontsize=11, y=0.995)
-        fig.tight_layout()
-        p = out_dir / f"validator_{persona}.png"
-        fig.savefig(p, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        saved.append(p)
-
-    personas = list(results.keys())
-    fig, axes = plt.subplots(1, len(personas), figsize=(6.2 * len(personas), 5.2))
-    if len(personas) == 1:
-        axes = [axes]
-    for ax, persona in zip(axes, personas):
-        sw = meta.get("switch_iter") if persona == "LATE_SWITCHER" else None
-        plot_persona_panel(ax, results[persona],
-                           PERSONA_TITLES.get(persona, persona), switch_iter=sw)
-    sub = (f"acqf={acqf}   retest_delay={meta.get('retest_delay', '?')}   "
-           f"seeds={meta.get('n_seeds', '?')}")
-    fig.suptitle(f"PBO vs PBO+L2G vs PBO+L2G+Validator — {sub}",
-                 fontsize=13, fontweight="bold")
-    fig.tight_layout()
-    p = out_dir / "validator_grid.png"
-    fig.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    saved.append(p)
+    for band in bands:
+        suffix = "" if band == "none" else "_band"
+        for persona, arm_curves in results.items():
+            fig, ax = plt.subplots(figsize=(7.6, 5.2))
+            sw = meta.get("switch_iter") if persona == "LATE_SWITCHER" else None
+            plot_persona_panel(ax, arm_curves, persona, switch_iter=sw, band=band)
+            fig.text(0.5, 0.008, _fig_subtitle(meta, band),
+                     ha="center", fontsize=9, color="#666666")
+            fig.tight_layout(rect=(0, 0.03, 1, 1))
+            p = out_dir / f"validator_{persona}{suffix}.png"
+            fig.savefig(p, dpi=200, bbox_inches="tight")
+            plt.close(fig)
+            saved.append(p)
     return saved
 
 
@@ -130,16 +188,20 @@ def load_results(results_dir: Path) -> Dict[str, Dict[str, np.ndarray]]:
         stem = f.stem[len("regret_"):]                 # {PERSONA}_{arm}
         persona, arm = stem.rsplit("_", 1)
         results.setdefault(persona, {})[arm] = np.load(f)
-    return results
+    # stable, presentation-friendly persona order
+    order = ["CONSISTENT_BASE", "MONOTONE_CONSTRAINED", "NOISY", "LATE_SWITCHER"]
+    return {p: results[p] for p in order if p in results} | {
+        p: v for p, v in results.items() if p not in order}
 
 
 if __name__ == "__main__":
     rdir = Path(sys.argv[1]) if len(sys.argv) > 1 else (
-        Path(__file__).parent / "experiments" / "results" / "validator_compare")
+        Path(__file__).parent.parent / "experiments" / "experiments"
+        / "results" / "final_comparison")
     res = load_results(rdir)
     if not res:
         sys.exit(f"No regret_*.npy files found in {rdir}")
     meta_path = rdir / "meta.json"
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"switch_iter": 8}
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     for p in plot_all(res, rdir, meta):
         print(f"Figure saved → {p}")

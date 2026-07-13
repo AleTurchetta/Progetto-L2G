@@ -259,6 +259,19 @@ class BaseOracle:
 # 5.  ADVERSARIAL PERSONAS  (corrupt the base output; share the same utility)
 # ─────────────────────────────────────────────────────────────────────────────
 
+class MonotoneConstrainedOracle(BaseOracle):
+    """S1b port: honest preference + one mild, always-satisfiable relative
+    constraint (no tracking_mse regression vs A, 5% margin)."""
+    persona = Persona.CONSISTENT_BASE  # logging label only
+
+    def query(self, mA, mB, iteration=1):
+        out = self._honest_output(mA, mB, iteration)
+        out["constraints"] = [_directional_vs("A", "tracking_mse", iteration,
+                                              margin=0.05, confidence=0.9)]
+        out["feedback_type"] = "both"
+        self._finalise(out, mA, mB, iteration)
+        return out
+
 class NoisyOracle(BaseOracle):
     """S2 — flips the preference label with probability `noise_level`."""
     persona = Persona.NOISY

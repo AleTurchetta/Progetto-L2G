@@ -1,0 +1,29 @@
+{
+  "acqf": "qEUBO",
+  "switch_iter": 12,
+  "retest_delay": 1,
+  "n_seeds": 8,
+  "noise_level": 0.4,
+  "u1_star": -0.0032108859900875112,
+  "u2_star": -0.0032514170002259264,
+  "target1_seed": 95,
+  "target2_seed": 24,
+  "n_iterations": 30,
+  "validator_kwargs": {
+    "tau_flag": 0.38,
+    "tau_spot": 0.45,
+    "spotcheck_every": 4,
+    "min_iter": 5,
+    "retest_delay": 1,
+    "max_retests_total": 10,
+    "max_retests_per_pair": 2,
+    "confirm_weight": 2,
+    "correction_weight": 2,
+    "changepoint_confirmations": 3,
+    "changepoint_window": 8,
+    "changepoint_recency": 4,
+    "changepoint_min_expressed": 9,
+    "post_change_weight": 2,
+    "confirm_streak_limit": 3
+  }
+}

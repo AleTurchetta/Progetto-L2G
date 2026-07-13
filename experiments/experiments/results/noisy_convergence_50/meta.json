@@ -1,0 +1,9 @@
+{
+  "acqf": "qEUBO",
+  "n_seeds": 8,
+  "noise_level": 0.4,
+  "n_iterations": 50,
+  "u_star": -0.0032108859900875112,
+  "target1_seed": 95,
+  "retest_budget": 18
+}

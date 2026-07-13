@@ -177,7 +177,7 @@ def run_loop_validated(
         # as a normal iteration.
         did_validation = False
         if arm == "validated":
-            rec = validator.audit(pref_model, iteration)
+            rec = validator.audit(pref_model, iteration, refit_fn=_fit_pref_gp)
             if rec is not None:
                 did_validation = True
                 validation_iters.append(iteration)
@@ -190,15 +190,8 @@ def run_loop_validated(
                 if pref is not None:
                     confirmed = pref["preferred_candidate"] == "B"   # B = orig winner
                     validator.resolve(rec, confirmed, iteration)
-                    if not confirmed:
-                        # Mistake: refit on corrected weights; revert the
-                        # incumbent if the overruled preference was holding it.
-                        pref_model = _fit_pref_gp(validator.dataset())
-                        if validator.incumbent_rec_id == rec.rec_id:
-                            best_idx = _posterior_argmax(pref_model, train_x, best_idx)
-                            validator.clear_incumbent_link()
-                            if verbose:
-                                print(f"  [validator] incumbent reverted -> idx={best_idx}")
+                    # The end-of-iteration refit + posterior-argmax incumbent
+                    # (step 11) absorbs the correction/reweighting immediately.
                 # No preference in the retest output (should not happen with
                 # these personas): leave the record pending; audit will retry.
 
@@ -300,44 +293,30 @@ def run_loop_validated(
                     obs_metrics[k].append(metricsB[k])
                 obs_traj.append((tB, yB, metricsB))
 
-            idx_A, idx_B = best_idx, len(train_x) - 1
-
             # 10b. Register the comparison with the validator (never deleted).
             preferred = parsed.preference.preferred_candidate if (
                 parsed and parsed.preference) else None
-            rec_new = None
             if arm == "validated" and preferred in ("A", "B"):
                 if preferred == "A":
-                    rec_new = validator.add_comparison(
+                    validator.add_comparison(
                         _ensure_2d(xA), _ensure_2d(xB), metricsA, metricsB, iteration)
                 else:
-                    rec_new = validator.add_comparison(
+                    validator.add_comparison(
                         _ensure_2d(xB), _ensure_2d(xA), metricsB, metricsA, iteration)
-
-            # 11. Incumbent update — baseline "last preferred" rule.
-            if preferred == "B":
-                best_idx = idx_B
-                if arm == "validated" and rec_new is not None:
-                    validator.note_incumbent_promotion(rec_new)
-            elif preferred is None and found_valid:
-                uA = _utility_now(oracle, metricsA, iteration)
-                uB = _utility_now(oracle, metricsB, iteration)
-                best_idx = idx_B if uB > uA else idx_A
-            else:
-                best_idx = idx_A
 
             last_shown_x = xB.unsqueeze(0)
             last_shown_metrics = metricsB
 
-        # ── incumbent guard (validated arm): while the preference holding the
-        #    incumbent is flagged-pending, fall back to posterior argmax so a
-        #    suspect label can't park the incumbent on a bad point during the
-        #    retest_delay window.
-        if arm == "validated" and validator.incumbent_suspect():
-            guarded = _posterior_argmax(pref_model, train_x, best_idx)
-            if guarded != best_idx and verbose:
-                print(f"  [validator] incumbent guard: idx {best_idx} -> {guarded}")
-            best_idx = guarded
+        # 11. Incumbent = posterior argmax of the preference model, refit on
+        #     the dataset as it stands at the END of this iteration.  Arm-
+        #     neutral (replaces the "last preferred" rule): a single flipped
+        #     label can no longer teleport the incumbent, and validator
+        #     corrections / reweighting move the incumbent — hence the
+        #     measured regret — in the same iteration they happen.
+        pref_pairs = (validator.dataset() if arm == "validated"
+                      else l2g.get_preference_dataset())
+        pref_model = _fit_pref_gp(pref_pairs)
+        best_idx = _posterior_argmax(pref_model, train_x, best_idx)
 
         # 12. Dynamic simple regret vs the CURRENTLY ACTIVE utility
         current_metrics = obs_traj[best_idx][2]

@@ -1,0 +1,204 @@
+[
+  {
+    "seed": 42,
+    "validation_iters": [
+      5,
+      10,
+      11
+    ],
+    "events": [
+      {
+        "iteration": 5,
+        "event": "confirmed",
+        "rec_id": 3,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 10,
+        "event": "confirmed",
+        "rec_id": 7,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 11,
+        "event": "confirmed",
+        "rec_id": 7,
+        "trigger": "flag",
+        "changepoint": 4
+      }
+    ],
+    "summary": {
+      "n_records": 27,
+      "by_status": {
+        "unverified": 26,
+        "confirmed": 1
+      },
+      "retests_done": 3,
+      "changepoint_iter": 4
+    }
+  },
+  {
+    "seed": 7,
+    "validation_iters": [
+      8,
+      12,
+      13
+    ],
+    "events": [
+      {
+        "iteration": 8,
+        "event": "confirmed",
+        "rec_id": 2,
+        "trigger": "spot",
+        "changepoint": null
+      },
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 9,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 13,
+        "event": "confirmed",
+        "rec_id": 1,
+        "trigger": "flag",
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 27,
+      "by_status": {
+        "unverified": 23,
+        "confirmed": 2,
+        "pending": 2
+      },
+      "retests_done": 3,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 13,
+    "validation_iters": [
+      8,
+      12,
+      13
+    ],
+    "events": [
+      {
+        "iteration": 8,
+        "event": "confirmed",
+        "rec_id": 0,
+        "trigger": "spot",
+        "changepoint": null
+      },
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 9,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 13,
+        "event": "confirmed",
+        "rec_id": 9,
+        "trigger": "flag",
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 27,
+      "by_status": {
+        "pending": 4,
+        "unverified": 22,
+        "confirmed": 1
+      },
+      "retests_done": 3,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 99,
+    "validation_iters": [
+      7,
+      8,
+      12
+    ],
+    "events": [
+      {
+        "iteration": 7,
+        "event": "confirmed",
+        "rec_id": 5,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 8,
+        "event": "confirmed",
+        "rec_id": 5,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 2,
+        "trigger": "spot",
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 27,
+      "by_status": {
+        "unverified": 25,
+        "confirmed": 2
+      },
+      "retests_done": 3,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 2025,
+    "validation_iters": [
+      5,
+      7,
+      12
+    ],
+    "events": [
+      {
+        "iteration": 5,
+        "event": "confirmed",
+        "rec_id": 3,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 7,
+        "event": "confirmed",
+        "rec_id": 3,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 1,
+        "trigger": "spot",
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 27,
+      "by_status": {
+        "unverified": 25,
+        "confirmed": 2
+      },
+      "retests_done": 3,
+      "changepoint_iter": null
+    }
+  }
+]

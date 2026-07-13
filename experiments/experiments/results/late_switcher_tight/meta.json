@@ -1,0 +1,11 @@
+{
+  "acqf": "qEUBO",
+  "switch_iter": 12,
+  "retest_delay": 1,
+  "n_seeds": 5,
+  "u1_star": -0.0032108859900875112,
+  "u2_star": -0.0032514170002259264,
+  "target1_seed": 95,
+  "target2_seed": 24,
+  "n_iterations": 40
+}

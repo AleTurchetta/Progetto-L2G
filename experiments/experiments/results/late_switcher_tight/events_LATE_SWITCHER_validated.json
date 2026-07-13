@@ -1,0 +1,106 @@
+[
+  {
+    "seed": 42,
+    "validation_iters": [],
+    "events": [],
+    "summary": {
+      "n_records": 40,
+      "by_status": {
+        "unverified": 40
+      },
+      "retests_done": 0,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 7,
+    "validation_iters": [
+      15
+    ],
+    "events": [
+      {
+        "iteration": 15,
+        "event": "confirmed",
+        "rec_id": 12,
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 39,
+      "by_status": {
+        "unverified": 38,
+        "confirmed": 1
+      },
+      "retests_done": 1,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 13,
+    "validation_iters": [
+      17,
+      21
+    ],
+    "events": [
+      {
+        "iteration": 17,
+        "event": "overruled",
+        "rec_id": 9,
+        "correction_id": 16
+      },
+      {
+        "iteration": 21,
+        "event": "confirmed",
+        "rec_id": 19,
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 39,
+      "by_status": {
+        "unverified": 36,
+        "overruled": 1,
+        "retest": 1,
+        "confirmed": 1
+      },
+      "retests_done": 2,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 99,
+    "validation_iters": [
+      28
+    ],
+    "events": [
+      {
+        "iteration": 28,
+        "event": "confirmed",
+        "rec_id": 11,
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 39,
+      "by_status": {
+        "unverified": 38,
+        "confirmed": 1
+      },
+      "retests_done": 1,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 2025,
+    "validation_iters": [],
+    "events": [],
+    "summary": {
+      "n_records": 40,
+      "by_status": {
+        "unverified": 40
+      },
+      "retests_done": 0,
+      "changepoint_iter": null
+    }
+  }
+]

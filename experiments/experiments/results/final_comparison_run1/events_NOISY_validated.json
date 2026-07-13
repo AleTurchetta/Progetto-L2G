@@ -1,0 +1,339 @@
+[
+  {
+    "seed": 42,
+    "validation_iters": [
+      6,
+      9,
+      14,
+      15,
+      21,
+      25,
+      28,
+      29
+    ],
+    "events": [
+      {
+        "iteration": 6,
+        "event": "overruled",
+        "rec_id": 1,
+        "correction_id": 5,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 9,
+        "event": "overruled",
+        "rec_id": 7,
+        "correction_id": 8,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 14,
+        "event": "confirmed",
+        "rec_id": 12,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 15,
+        "event": "overruled",
+        "rec_id": 12,
+        "correction_id": 13,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 21,
+        "event": "overruled",
+        "rec_id": 18,
+        "correction_id": 19,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 25,
+        "event": "overruled",
+        "rec_id": 22,
+        "correction_id": 23,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 28,
+        "event": "confirmed",
+        "rec_id": 25,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 29,
+        "event": "overruled",
+        "rec_id": 25,
+        "correction_id": 26,
+        "trigger": "flag"
+      }
+    ],
+    "summary": {
+      "n_records": 28,
+      "by_status": {
+        "unverified": 17,
+        "overruled": 6,
+        "retest": 5
+      },
+      "retests_done": 8,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 7,
+    "validation_iters": [
+      7,
+      8,
+      9,
+      12,
+      13,
+      16,
+      20,
+      23
+    ],
+    "events": [
+      {
+        "iteration": 7,
+        "event": "confirmed",
+        "rec_id": 1,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 8,
+        "event": "overruled",
+        "rec_id": 1,
+        "correction_id": 6,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 9,
+        "event": "overruled",
+        "rec_id": 0,
+        "correction_id": 7,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 9,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 13,
+        "event": "overruled",
+        "rec_id": 9,
+        "correction_id": 10,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 16,
+        "event": "overruled",
+        "rec_id": 12,
+        "correction_id": 13,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 20,
+        "event": "overruled",
+        "rec_id": 7,
+        "correction_id": 17,
+        "trigger": "spot"
+      },
+      {
+        "iteration": 23,
+        "event": "overruled",
+        "rec_id": 19,
+        "correction_id": 20,
+        "trigger": "flag"
+      }
+    ],
+    "summary": {
+      "n_records": 28,
+      "by_status": {
+        "overruled": 6,
+        "unverified": 13,
+        "pending": 4,
+        "retest": 5
+      },
+      "retests_done": 8,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 13,
+    "validation_iters": [
+      6,
+      8,
+      11,
+      12,
+      15,
+      16
+    ],
+    "events": [
+      {
+        "iteration": 6,
+        "event": "overruled",
+        "rec_id": 4,
+        "correction_id": 5,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 8,
+        "event": "overruled",
+        "rec_id": 6,
+        "correction_id": 7,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 11,
+        "event": "overruled",
+        "rec_id": 9,
+        "correction_id": 10,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 0,
+        "trigger": "spot",
+        "changepoint": null
+      },
+      {
+        "iteration": 15,
+        "event": "confirmed",
+        "rec_id": 12,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 16,
+        "event": "confirmed",
+        "rec_id": 12,
+        "trigger": "flag",
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 27,
+      "by_status": {
+        "confirmed": 2,
+        "unverified": 14,
+        "overruled": 3,
+        "retest": 3,
+        "pending": 5
+      },
+      "retests_done": 6,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 99,
+    "validation_iters": [
+      6,
+      7,
+      12
+    ],
+    "events": [
+      {
+        "iteration": 6,
+        "event": "confirmed",
+        "rec_id": 4,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 7,
+        "event": "confirmed",
+        "rec_id": 4,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 8,
+        "trigger": "flag",
+        "changepoint": 5
+      }
+    ],
+    "summary": {
+      "n_records": 27,
+      "by_status": {
+        "unverified": 22,
+        "pending": 3,
+        "confirmed": 2
+      },
+      "retests_done": 3,
+      "changepoint_iter": 5
+    }
+  },
+  {
+    "seed": 2025,
+    "validation_iters": [
+      7,
+      8,
+      11,
+      14,
+      15,
+      17
+    ],
+    "events": [
+      {
+        "iteration": 7,
+        "event": "confirmed",
+        "rec_id": 5,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 8,
+        "event": "overruled",
+        "rec_id": 5,
+        "correction_id": 6,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 11,
+        "event": "overruled",
+        "rec_id": 8,
+        "correction_id": 9,
+        "trigger": "flag"
+      },
+      {
+        "iteration": 14,
+        "event": "confirmed",
+        "rec_id": 11,
+        "trigger": "flag",
+        "changepoint": null
+      },
+      {
+        "iteration": 15,
+        "event": "confirmed",
+        "rec_id": 11,
+        "trigger": "flag",
+        "changepoint": 6
+      },
+      {
+        "iteration": 17,
+        "event": "confirmed",
+        "rec_id": 12,
+        "trigger": "flag",
+        "changepoint": 6
+      }
+    ],
+    "summary": {
+      "n_records": 26,
+      "by_status": {
+        "unverified": 19,
+        "pending": 4,
+        "overruled": 2,
+        "confirmed": 1
+      },
+      "retests_done": 6,
+      "changepoint_iter": 6
+    }
+  }
+]

@@ -1,0 +1,77 @@
+[
+  {
+    "seed": 42,
+    "validation_iters": [],
+    "events": [],
+    "summary": {
+      "n_records": 20,
+      "by_status": {
+        "unverified": 20
+      },
+      "retests_done": 0,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 7,
+    "validation_iters": [],
+    "events": [],
+    "summary": {
+      "n_records": 20,
+      "by_status": {
+        "unverified": 20
+      },
+      "retests_done": 0,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 13,
+    "validation_iters": [],
+    "events": [],
+    "summary": {
+      "n_records": 20,
+      "by_status": {
+        "unverified": 20
+      },
+      "retests_done": 0,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 99,
+    "validation_iters": [
+      12
+    ],
+    "events": [
+      {
+        "iteration": 12,
+        "event": "confirmed",
+        "rec_id": 7,
+        "changepoint": null
+      }
+    ],
+    "summary": {
+      "n_records": 19,
+      "by_status": {
+        "unverified": 18,
+        "confirmed": 1
+      },
+      "retests_done": 1,
+      "changepoint_iter": null
+    }
+  },
+  {
+    "seed": 2025,
+    "validation_iters": [],
+    "events": [],
+    "summary": {
+      "n_records": 20,
+      "by_status": {
+        "unverified": 20
+      },
+      "retests_done": 0,
+      "changepoint_iter": null
+    }
+  }
+]
